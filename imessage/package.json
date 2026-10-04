@@ -1,0 +1,16 @@
+{
+  "name": "inbox-atlas-imessage",
+  "version": "0.1.0",
+  "description": "iMessage sidecar for Inbox Atlas: text your inbox, built on Photon Spectrum.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "mock": "node src/index.js --dry-run",
+    "test": "node --test"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "spectrum-ts": "^12.10.1"
+  }
+}
