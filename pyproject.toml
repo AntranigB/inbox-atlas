@@ -19,6 +19,13 @@ dependencies = [
   "tzdata",
 ]
 
+[project.scripts]
+atlas = "atlas.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project.optional-dependencies]
 train = ["torch>=2.4", "peft>=0.12", "transformers>=4.44", "datasets>=2.20", "accelerate>=0.33", "tqdm", "pandas", "pyarrow"]
 dictate = ["sounddevice>=0.4", "pynput>=1.7", "pyperclip>=1.9", "soundfile>=0.12"]
