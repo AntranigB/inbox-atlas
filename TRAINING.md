@@ -32,8 +32,11 @@ Results live at the bottom of this file and in `runs/<run>/metrics.json`.
   listwise KL to the frozen teacher's scores for the topic name.
 - Set augmentation: 1 to 8 positives, 0 to 3 negatives, random subsets (phrase dropout) and small
   embedding noise, so it does not care how many phrases Grok writes.
-- After training a scalar temperature T is fit on the val split so `sigmoid(m / T)` is a calibrated
-  P(member). Saved to `models/atlas-embed/region.pt` with its config.
+- After training, a scalar temperature T and a scalar offset are fit on the val split (every val
+  email scored against sampled val topic sets, so the natural ~0.1% base rate) so
+  `sigmoid((m - shift) / T)` is a calibrated P(member). A temperature alone was not enough: training
+  sets are sampled near balanced, and the first smoke run had ECE 0.42 with T only. Saved to
+  `models/atlas-embed/region.pt` with its config.
 
 ## Data
 
@@ -81,7 +84,8 @@ Always `git pull` before launching anything. Everything runs inside tmux so it s
 | Teacher scores | `uv run python -m train.teacher --ds enron` | see log, about 30 to 50 min |
 | Stage A (student LoRA) | `uv run python -m train.stage_a --run a2 --out models/atlas-embed` | about 0.86 s/step, 2.8k steps per epoch = 40 min |
 | Stage B (region) | `uv run python -m train.stage_b --model models/atlas-embed --run b1` | 5 min embed cache + 5 to 10 min train |
-| Stage C (personal, optional) | `uv run python -m train.stage_a --run c1 --ds personal --init-adapter models/atlas-embed --out models/atlas-embed-personal --epochs 1` | depends on inbox size |
+| Stage C (personal, optional) | `uv run python -m train.build_personal && uv run python -m train.mine --ds personal && uv run python -m train.stage_a --run c1 --ds personal --no-distill --init-adapter models/atlas-embed --out models/atlas-embed-personal --epochs 1` | minutes for a few thousand emails |
+| Transfer eval | `uv run python -m train.eval --ds personal --run eval-personal --models models/atlas-embed` | 1 to 3 min |
 | Eval | `uv run python -m train.eval --run eval1 --models models/atlas-embed` | 5 to 10 min |
 
 The whole Stage A chain is scripted: `train/run_stage_a.sh <run>` (parses, mines, then trains with

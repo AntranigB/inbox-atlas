@@ -193,12 +193,17 @@ def main():
                 o["ndcg"].append(retrieval(s[None], [set(np.where(y > 0)[0])])["ndcg@10"])
                 o["y"].append(y)
                 o["p"].append(p)
+                top = np.argsort(-s)[:200]  # where decisions happen: the top of the ranking
+                o.setdefault("yt", []).append(y[top])
+                o.setdefault("pt", []).append(p[top])
         for vname, o in out.items():
             Y = np.concatenate(o["y"]) if o["y"] else np.zeros(0)
             Pp = np.concatenate(o["p"]) if o["p"] else np.zeros(0)
             reg[f"{ename}/{vname}"] = {"auroc": float(np.nanmean(o["auroc"])) if o["auroc"] else None,
                                        "ndcg@10": float(np.mean(o["ndcg"])) if o["ndcg"] else None,
-                                       "ece": ece(Y, Pp) if len(Y) else None, "n_topics": len(o["auroc"])}
+                                       "ece": ece(Y, Pp) if len(Y) else None, "brier": float(np.mean((Pp - Y) ** 2)) if len(Y) else None,
+                                       "ece_top200": ece(np.concatenate(o["yt"]), np.concatenate(o["pt"])) if o.get("yt") else None,
+                                       "n_topics": len(o["auroc"])}
     results["region_heldfolder"] = reg
 
     run = RUNS / a.run
@@ -211,9 +216,9 @@ def main():
         lines.append(f"\n### {name} (n={next(iter(res.values()))['n']})\n\n| system | Recall@10 | nDCG@10 |\n|---|---|---|")
         for k, v in res.items():
             lines.append(f"| {k} | {v['recall@10']:.3f} | {v['ndcg@10']:.3f} |")
-    lines.append("\n### region membership, held-out folders\n\n| encoder/region | AUROC | nDCG@10 | ECE |\n|---|---|---|---|")
+    lines.append("\n### region membership, held-out folders\n\n| encoder/region | AUROC | nDCG@10 | ECE (all) | ECE (top 200) | Brier |\n|---|---|---|---|---|---|")
     for k, v in reg.items():
-        lines.append(f"| {k} | {v['auroc']:.3f} | {v['ndcg@10']:.3f} | {v['ece']:.4f} |")
+        lines.append(f"| {k} | {v['auroc']:.3f} | {v['ndcg@10']:.3f} | {v['ece']:.4f} | {v['ece_top200']:.4f} | {v['brier']:.5f} |")
     md = "\n".join(lines)
     (run / "metrics.md").write_text(md)
     print(md, flush=True)
