@@ -66,6 +66,7 @@ def main():
     ap.add_argument("--no-neg-phrases", action="store_true")
     ap.add_argument("--no-distill", action="store_true")
     ap.add_argument("--no-facets", action="store_true", help="anchors only, phrases are not used as extra anchors")
+    ap.add_argument("--all-negatives", action="store_true", help="draw negatives from all emails, not only same-source labeled ones")
     ap.add_argument("--out", default=None, help="region.pt path, default <model>/region.pt")
     a = ap.parse_args()
 
@@ -145,14 +146,28 @@ def main():
         return {"auroc": float(np.mean(au)), "ndcg@10": float(np.mean(nd)), "score": float(np.mean(au) + np.mean(nd))}
     C = torch.stack([s["c"] for s in sets])
     conf = (C @ C.T).fill_diagonal_(-1).topk(20, dim=1).indices.cpu().numpy()
-    hard = []
-    tr_np = train_rows.cpu().numpy()
-    for i in range(0, len(sets), 256):
-        sims = C[i : i + 256] @ Et[train_rows].T
-        top = sims.topk(400, dim=1).indices
-        for j, row in enumerate(top.cpu().numpy()):
-            s = sets[i + j]
-            hard.append([int(r) for r in tr_np[row] if int(r) not in s["mset"]])
+    # Labels are partial (only folder-filed or Grok-labeled emails carry topics), so an unlabeled
+    # email near a topic is often a true member. Negatives for a set come only from emails labeled
+    # by the same source (positive-unlabeled correction); --all-negatives turns this off.
+    pools = {}
+    for src in ("folder", "grok"):
+        if a.all_negatives:
+            rows = [i for i, e in enumerate(emails) if e["split"] == "train"]
+        elif src == "folder":
+            rows = [i for i, e in enumerate(emails) if e["split"] == "train" and e.get("topics")]
+        else:
+            rows = [i for i, e in enumerate(emails) if e["split"] == "train" and e["id"] in grok]
+        pools[src] = np.array(rows)
+    hard = [None] * len(sets)
+    for src, rows in pools.items():
+        ii = [i for i, s_ in enumerate(sets) if s_["src"] == src]
+        Ep = Et[torch.from_numpy(rows).to(dev)]
+        for c0 in range(0, len(ii), 256):
+            chunk = ii[c0 : c0 + 256]
+            top = (C[chunk] @ Ep.T).topk(min(400, len(rows)), dim=1).indices.cpu().numpy()
+            for j, row in zip(chunk, top):
+                hard[j] = [int(r) for r in rows[row] if int(r) not in sets[j]["mset"]]
+    pool_lists = {k: [int(x) for x in v] for k, v in pools.items()}
     print(f"prepared sets in {time.time() - t0:.0f}s", flush=True)
 
     net = SetRegionNet(d=E_all.shape[1], facets=not a.no_facets).to(dev)
@@ -177,7 +192,7 @@ def main():
         mem = rng.sample(s["mi"], min(24, len(s["mi"])))
         hn = rng.sample(hard[i], min(24, len(hard[i])))
         nn_e = rng.sample(near_neg, min(8, len(near_neg)))
-        rnd = rng.sample(trn, 64 - len(mem) - len(hn) - len(nn_e))
+        rnd = rng.sample(pool_lists[s["src"]], 64 - len(mem) - len(hn) - len(nn_e))
         rnd = [x for x in rnd if x not in s["mset"]]
         ids = mem + hn + nn_e + rnd
         y = [1.0] * len(mem) + [0.0] * (len(ids) - len(mem))
