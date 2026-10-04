@@ -110,12 +110,12 @@ def test_ask_tool_loop(eng, monkeypatch):
     calls = iter([
         _grok_reply(tool_calls=[{"id": "t1", "type": "function", "function": {
             "name": "search_region", "arguments": json.dumps({"positive": CODING[0], "negative": CODING[1]})}}]),
-        _grok_reply(content="**Codeforces** round 1043 starts Sunday — good luck."),
+        _grok_reply(content="**Codeforces** round 1043 starts Sunday " + chr(0x2014) + " good luck."),
     ])
     route = respx.post(grok.CHAT_URL).mock(side_effect=lambda req: next(calls))
     out = grok.ask("any coding competitions?", channel="imessage")
     assert route.call_count == 2
-    assert "*" not in out["reply"] and "—" not in out["reply"]
+    assert "*" not in out["reply"] and chr(0x2014) not in out["reply"]
     assert out["hits"] and out["region"]["size"] >= 1
     sent = json.loads(route.calls[0].request.content)
     assert len(sent["tools"]) == 7

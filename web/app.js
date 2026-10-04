@@ -275,12 +275,19 @@
     // facet stars
     ctx.font = `600 12px ${css("--sans") || "sans-serif"}`;
     ctx.textAlign = "left";
+    const placed = [];
     for (const f of state.facetPts) {
       const [x, y] = toScreen(f.x, f.y, w, h);
       star(x, y, 7);
       ctx.fillStyle = paper; ctx.strokeStyle = `rgb(${glow})`; ctx.lineWidth = 2; ctx.fill(); ctx.stroke();
+      // skip labels that would collide with one already drawn
+      let ly = y + 4;
+      const tw = ctx.measureText(f.label).width;
+      for (let tries = 0; tries < 4 && placed.some((b) => x + 10 < b.x1 && x + 10 + tw > b.x0 && Math.abs(ly - b.y) < 13); tries++) ly += 13;
+      if (placed.some((b) => x + 10 < b.x1 && x + 10 + tw > b.x0 && Math.abs(ly - b.y) < 13)) continue;
+      placed.push({ x0: x + 10, x1: x + 10 + tw, y: ly });
       ctx.lineWidth = 3; ctx.strokeStyle = paper; ctx.fillStyle = `rgb(${glow})`;
-      ctx.strokeText(f.label, x + 10, y + 4); ctx.fillText(f.label, x + 10, y + 4);
+      ctx.strokeText(f.label, x + 10, ly); ctx.fillText(f.label, x + 10, ly);
     }
   }
 

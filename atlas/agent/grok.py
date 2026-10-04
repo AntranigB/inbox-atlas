@@ -110,7 +110,7 @@ def _trim(text, channel):
     if channel in ("imessage", "voice"):
         text = re.sub(r"[*_`#]+", "", text)
         text = re.sub(r"^\s*[-]\s+", "", text, flags=re.M)
-    text = text.replace("—", ", ").replace("–", " to ")
+    text = text.replace(chr(0x2014), ", ").replace(chr(0x2013), " to ")
     if channel == "imessage" and len(text) > 600:
         text = text[:597].rsplit(" ", 1)[0] + "..."
     return text
