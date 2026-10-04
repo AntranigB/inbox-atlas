@@ -21,7 +21,8 @@ from pathlib import Path
 
 import numpy as np
 
-from train.common import DATASETS, RUNS, doc_text, norm_subject, read_jsonl
+from train.common import DATASETS, RUNS, doc_text, norm_subject, read_jsonl, sha
+from train.metrics import auroc, retrieval
 from train.topic_sets import folder_sets, grok_sets, load_grok
 
 
@@ -114,6 +115,34 @@ def main():
 
     prep(sets)
     prep(val_sets)
+    # region-val: 10% of train topics never seen in region training, scored on val emails, for
+    # model selection (step 0 = the initialization, which is close to the heuristic region)
+    rv_names = {s["name"] for s in sets if int(sha("rv:" + s["name"]), 16) % 10 == 0}
+    sets = [s for s in sets if s["name"] not in rv_names]
+    val_rows = torch.tensor([i for i, e in enumerate(emails) if e["split"] == "val"], device=dev)
+    vlist = val_rows.tolist()
+    rrng = random.Random(7)
+    rv = []
+    for s in val_sets:
+        if s["name"] in rv_names and len(s["mi"]) >= 3:
+            pool = s["pi"][1:] + s["si"]
+            ph = [s["pi"][0]] + rrng.sample(pool, min(4, len(pool)))
+            y = np.array([1.0 if r in s["mset"] else 0.0 for r in vlist])
+            rv.append((ph, y))
+    print(f"region-val topics {len(rv)}, training topics {len(sets)}", flush=True)
+
+    def rv_eval():
+        net.eval()
+        au, nd = [], []
+        with torch.no_grad():
+            Ev = Et[val_rows]
+            for ph, y in rv:
+                A, tau, b, fx = net(PVt[ph].unsqueeze(0), torch.ones(1, len(ph), dtype=torch.bool, device=dev), None, None)
+                m = membership(Ev, A, tau, b, fx)[0].cpu().numpy()
+                au.append(auroc(y, m))
+                nd.append(retrieval(m[None], [set(np.where(y > 0)[0])])["ndcg@10"])
+        net.train()
+        return {"auroc": float(np.mean(au)), "ndcg@10": float(np.mean(nd)), "score": float(np.mean(au) + np.mean(nd))}
     C = torch.stack([s["c"] for s in sets])
     conf = (C @ C.T).fill_diagonal_(-1).topk(20, dim=1).indices.cpu().numpy()
     hard = []
@@ -185,6 +214,11 @@ def main():
     tset = {i: teacher.get(s["name"]) for i, s in enumerate(sets) if s["src"] == "folder" and teacher.get(s["name"])}
     print(f"teacher lists for {len(tset)} sets", flush=True)
     log = open(run / "log.jsonl", "a")
+    import copy
+
+    best = rv_eval()
+    best_state, best_step = copy.deepcopy(net.state_dict()), 0
+    print("region-val step 0", json.dumps(best), flush=True)
     net.train()
     ema = None
     for step in range(1, a.steps + 1):
@@ -224,10 +258,16 @@ def main():
             print(json.dumps(rec), flush=True)
             log.write(json.dumps(rec) + "\n")
             log.flush()
+        if step % 250 == 0 or step == a.steps:
+            v = rv_eval()
+            print(f"region-val step {step}", json.dumps(v), flush=True)
+            if v["score"] > best["score"]:
+                best, best_state, best_step = v, copy.deepcopy(net.state_dict()), step
+    print(f"best region-val step {best_step}", json.dumps(best), flush=True)
+    net.load_state_dict(best_state)
 
     # calibration: score all val emails for sampled val sets, fit scalar T by NLL
     net.eval()
-    val_rows = torch.tensor([i for i, e in enumerate(emails) if e["split"] == "val"], device=dev)
     ms, ys = [], []
     with torch.no_grad():
         for s in val_sets[:300]:
@@ -244,7 +284,7 @@ def main():
     Yv = torch.cat(ys)
     # sets are sampled roughly balanced in training, the inbox is not: fit a temperature T and a
     # scalar offset on the natural val distribution, P(member) = sigmoid((m - shift) / T)
-    from train.metrics import auroc, ece, fit_platt
+    from train.metrics import ece, fit_platt
 
     sa, sc = fit_platt(Yv.numpy(), M.numpy())
     best_T, shift = 1.0 / max(sa, 1e-6), -sc / max(sa, 1e-6)
@@ -256,7 +296,7 @@ def main():
     out = Path(a.out) if a.out else mp / "region.pt"
     net_cpu = net.cpu()
     model = LearnedRegionModel(net_cpu, best_T, shift=shift, meta={"run": a.run, "encoder": str(mp), "calibration": cal,
-                                                 "steps": a.steps, "args": vars(a)})
+                                                 "steps": a.steps, "best_step": best_step, "region_val": best, "args": vars(a)})
     model.save(out)
     (run / "done.json").write_text(json.dumps({"out": str(out), "calibration": cal}, indent=1))
     print("saved", out, flush=True)
