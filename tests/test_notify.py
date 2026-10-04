@@ -1,3 +1,4 @@
+import sys
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -137,6 +138,8 @@ def test_api_routes(db, tmp_path, monkeypatch):
     import server
 
     sent = []
+    monkeypatch.setitem(sys.modules, "atlas.agent.tools", None)  # exercise the direct DB path
+    monkeypatch.setitem(sys.modules, "atlas.agent.grok", None)  # offline: no facet expansion
     monkeypatch.setattr(notify, "send_text", lambda text, to=None: sent.append(text) or {"ok": True})
     monkeypatch.setattr(notify, "_notifier", notify.Notifier(state_path=tmp_path / "s.json", conn=db))
     c = TestClient(server.app)

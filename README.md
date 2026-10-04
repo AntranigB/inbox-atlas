@@ -42,7 +42,7 @@ Web: search box, mic button, inbox map. iMessage: text the Atlas number. Dictati
 - [ ] Custom encoder and learned region model
 - [ ] Region search with Grok topic expansion
 - [ ] Voice dictation and voice agent
-- [ ] iMessage agent with proactive texts
+- [x] iMessage agent with proactive texts (see docs/IMESSAGE.md)
 
 ## Acknowledgments
 

@@ -86,8 +86,31 @@ def _conn():
     return store.connect()
 
 
+def _tools():
+    try:
+        from atlas.agent import tools  # search-agent branch, same DB connection as check_watches
+        return tools
+    except ImportError:
+        return None
+
+
+def _expand(topic):
+    """Grok facet expansion makes a much tighter watch region than the bare topic word."""
+    try:
+        from atlas.agent.grok import expand  # search-agent branch
+        e = expand(topic)
+        pos = [p for p in e.get("positive") or [] if p]
+        return ([topic] + [p for p in pos if p.lower() != topic.lower()])[:8], e.get("negative") or []
+    except Exception as e:  # noqa: BLE001
+        log.info("watch expansion unavailable (%s), using the bare topic", e)
+        return [topic], []
+
+
 @router.get("/api/notify/watches")
 def list_watches():
+    t = _tools()
+    if t and hasattr(t, "list_watches"):
+        return [{"id": w["id"], "name": w["name"]} for w in t.list_watches()]
     rows = _conn().execute("select id, name from watches order by created").fetchall()
     return [{"id": r["id"], "name": r["name"]} for r in rows]
 
@@ -97,14 +120,12 @@ def add_watch(body: WatchBody):
     name = body.name.strip()
     if not name:
         raise HTTPException(400, "name is required")
-    positive = body.positive or [body.topic or name]
-    negative = body.negative or []
-    try:
-        from atlas.agent.tools import add_watch as agent_add  # search-agent branch
-    except ImportError:
-        agent_add = None
-    if agent_add:
-        r = agent_add(name=name, positive=positive, negative=negative)
+    positive, negative = body.positive, body.negative or []
+    if not positive:
+        positive, negative = _expand(body.topic or name)
+    t = _tools()
+    if t and hasattr(t, "add_watch"):
+        r = t.add_watch(name=name, positive=positive, negative=negative)
         return {"id": r.get("id"), "name": r.get("name", name)}
     conn = _conn()
     wid = uuid.uuid4().hex[:12]
@@ -116,6 +137,10 @@ def add_watch(body: WatchBody):
 
 @router.delete("/api/notify/watches/{name}")
 def delete_watch(name: str):
+    t = _tools()
+    if t and hasattr(t, "list_watches") and hasattr(t, "delete_watch"):
+        match = [w for w in t.list_watches() if w["id"] == name or w["name"].lower() == name.lower()]
+        return {"removed": sum(t.delete_watch(w["id"]).get("deleted", 0) for w in match)}
     conn = _conn()
     cur = conn.execute("delete from watches where id=? or lower(name)=lower(?)", (name, name))
     conn.commit()
