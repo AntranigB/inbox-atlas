@@ -64,13 +64,14 @@ def main():
     ap.add_argument("--kd-weight", type=float, default=0.5)
     ap.add_argument("--no-neg-phrases", action="store_true")
     ap.add_argument("--no-distill", action="store_true")
+    ap.add_argument("--no-facets", action="store_true", help="anchors only, phrases are not used as extra anchors")
     ap.add_argument("--out", default=None, help="region.pt path, default <model>/region.pt")
     a = ap.parse_args()
 
     import torch
     import torch.nn.functional as F
 
-    from atlas.model.region_encoder import LearnedRegionModel, SetRegionNet, membership
+    from atlas.model.region_encoder import LearnedRegionModel, SetRegionNet, membership, slice_fx
     from atlas.model.trained import load, load_base
 
     torch.manual_seed(0)
@@ -125,7 +126,7 @@ def main():
             hard.append([int(r) for r in tr_np[row] if int(r) not in s["mset"]])
     print(f"prepared sets in {time.time() - t0:.0f}s", flush=True)
 
-    net = SetRegionNet(d=E_all.shape[1]).to(dev)
+    net = SetRegionNet(d=E_all.shape[1], facets=not a.no_facets).to(dev)
     opt = torch.optim.AdamW(net.parameters(), lr=a.lr, weight_decay=0.01)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=a.lr, total_steps=a.steps, pct_start=0.05)
     trn = [int(x) for x in train_rows.cpu().numpy()]
@@ -192,8 +193,8 @@ def main():
         P, Pm, N, Nm, E, Y, W, NG = collate(items)
         if net.training:
             P = F.normalize(P + 0.02 * torch.randn_like(P), dim=-1) * Pm.unsqueeze(-1)
-        A, tau, b = net(P, Pm, N, Nm)
-        m = membership(E, A, tau, b)
+        A, tau, b, fx = net(P, Pm, N, Nm)
+        m = membership(E, A, tau, b, fx)
         pw = (1 - Y) * 1.0 + Y * 2.0  # members are rarer, upweight
         l_bce = (F.binary_cross_entropy_with_logits(m, Y, reduction="none") * W * pw).sum() / W.sum()
         l_neg = (F.softplus(m) * NG).sum() / NG.sum().clamp(min=1)
@@ -205,7 +206,7 @@ def main():
                 t = tset[i]
                 cid = [idx[c] for c in t if c in idx]
                 tv = torch.tensor([t[emails[c]["id"]] for c in cid], device=dev)
-                mm = membership(Et[cid].unsqueeze(0), A[j : j + 1], tau[j : j + 1], b[j : j + 1])[0]
+                mm = membership(Et[cid].unsqueeze(0), A[j : j + 1], tau[j : j + 1], b[j : j + 1], slice_fx(fx, j))[0]
                 terms.append(F.kl_div(F.log_softmax(mm, -1), F.log_softmax(tv, -1), log_target=True, reduction="sum"))
             l_kd = torch.stack(terms).mean()
         loss = l_bce + a.neg_weight * l_neg + a.kd_weight * l_kd
@@ -234,8 +235,8 @@ def main():
             for _ in range(2):
                 k = rng.randint(1, min(8, len(pool)))
                 P = PVt[rng.sample(pool, k)].unsqueeze(0)
-                A, tau, b = net(P, torch.ones(1, k, dtype=torch.bool, device=dev), None, None)
-                m = membership(Et[val_rows], A, tau, b)[0]
+                A, tau, b, fx = net(P, torch.ones(1, k, dtype=torch.bool, device=dev), None, None)
+                m = membership(Et[val_rows], A, tau, b, fx)[0]
                 y = torch.tensor([1.0 if int(r) in s["mset"] else 0.0 for r in val_rows.tolist()], device=dev)
                 ms.append(m.cpu())
                 ys.append(y.cpu())

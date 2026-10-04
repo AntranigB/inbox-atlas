@@ -114,6 +114,24 @@ def test_build_personal_from_fixture(tmp_path, monkeypatch):
     assert "hackathon" in labs
 
 
+def test_region_facets_numpy_matches_torch():
+    torch = pytest.importorskip("torch")
+    from atlas.model.region_encoder import LearnedRegionModel, SetRegionNet, membership
+
+    torch.manual_seed(0)
+    net = SetRegionNet(d=16, h=16, heads=4, m=4, k=2, facets=True).eval()
+    rng = np.random.default_rng(1)
+    pos, neg = rng.normal(size=(3, 16)).astype(np.float32), rng.normal(size=(2, 16)).astype(np.float32)
+    E = rng.normal(size=(7, 16)).astype(np.float32)
+    reg = LearnedRegionModel(net).build(pos, neg)
+    with torch.no_grad():
+        P, N = torch.from_numpy(pos)[None], torch.from_numpy(neg)[None]
+        a, tau, b, fx = net(P, torch.ones(1, 3, dtype=torch.bool), N, torch.ones(1, 2, dtype=torch.bool))
+        m = membership(torch.from_numpy(E), a, tau, b, fx)[0].numpy()
+    assert np.allclose(reg.score(E), m, atol=1e-3)
+    assert reg.describe()["facet_tau"] is not None
+
+
 def test_region_encoder_learns_toy_sets():
     torch = pytest.importorskip("torch")
     import torch.nn.functional as F
@@ -131,8 +149,8 @@ def test_region_encoder_learns_toy_sets():
         mem = F.normalize(centers[t].unsqueeze(1) + 0.15 * torch.randn(16, 8, d), dim=-1)
         oth = F.normalize(centers[(t + 1) % 6].unsqueeze(1) + 0.15 * torch.randn(16, 8, d), dim=-1)
         Y = torch.cat([torch.ones(16, 8), torch.zeros(16, 8)], 1)
-        a, tau, b = net(P, torch.ones(16, 3, dtype=torch.bool), None, None)
-        loss = F.binary_cross_entropy_with_logits(membership(torch.cat([mem, oth], 1), a, tau, b), Y)
+        a, tau, b, fx = net(P, torch.ones(16, 3, dtype=torch.bool), None, None)
+        loss = F.binary_cross_entropy_with_logits(membership(torch.cat([mem, oth], 1), a, tau, b, fx), Y)
         opt.zero_grad()
         loss.backward()
         opt.step()

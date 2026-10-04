@@ -60,9 +60,17 @@ class PMA(nn.Module):
 
 
 class SetRegionNet(nn.Module):
-    def __init__(self, d=768, h=256, heads=4, m=16, k=4, tau0=20.0, b0=16.0):
+    def __init__(self, d=768, h=256, heads=4, m=16, k=4, tau0=20.0, b0=16.0, facets=False, g0=10.0):
         super().__init__()
-        self.cfg = dict(d=d, h=h, heads=heads, m=m, k=k, tau0=tau0, b0=b0)
+        self.cfg = dict(d=d, h=h, heads=heads, m=m, k=k, tau0=tau0, b0=b0, facets=facets, g0=g0)
+        self.facets = facets
+        if facets:  # the input phrases also act as anchors (shared learned temperature) + negative gate
+            self.ftau = nn.Linear(h, 1)
+            self.gate = nn.Linear(h, 1)
+            nn.init.zeros_(self.ftau.weight)
+            nn.init.constant_(self.ftau.bias, math.log(math.expm1(tau0)))
+            nn.init.zeros_(self.gate.weight)
+            nn.init.constant_(self.gate.bias, math.log(math.expm1(g0)))
         self.inp = nn.Linear(d, h)
         self.kind_emb = nn.Embedding(2, h)  # 0 = positive phrase, 1 = negative phrase
         self.isab = nn.ModuleList([ISAB(h, heads, m), ISAB(h, heads, m)])
@@ -79,7 +87,7 @@ class SetRegionNet(nn.Module):
 
     def forward(self, P, Pm, N, Nm):
         """P: (B, p, d) positive phrase vecs, Pm: (B, p) bool valid. N, Nm likewise (n may be 0).
-        Returns anchors (B, K, d) unit, tau (B, K), b (B,)."""
+        Returns anchors (B, K, d) unit, tau (B, K), b (B,), fx (facet terms dict or None)."""
         x = self.inp(P) + self.kind_emb.weight[0]
         valid = Pm
         if N is not None and N.shape[1] > 0:
@@ -94,17 +102,41 @@ class SetRegionNet(nn.Module):
         a = F.normalize(center.unsqueeze(1) + self.anchor(z), dim=-1)
         tau = F.softplus(self.tau(z)).squeeze(-1) + 1.0
         b = self.bias(z.mean(1)).squeeze(-1)
-        return a, tau, b
+        fx = None
+        if self.facets:
+            zm = z.mean(1)
+            fx = {"P": F.normalize(P, dim=-1), "Pm": Pm, "ftau": F.softplus(self.ftau(zm)).squeeze(-1) + 1.0,
+                  "g": F.softplus(self.gate(zm)).squeeze(-1)}
+            if N is not None and N.shape[1] > 0:
+                fx["N"], fx["Nm"] = F.normalize(N, dim=-1), Nm
+        return a, tau, b, fx
 
 
-def membership(E, a, tau, b):
-    """E: (B, n, d) or (n, d) shared; returns (B, n) logits m(e)."""
+def slice_fx(fx, i):
+    return None if fx is None else {k: v[i : i + 1] for k, v in fx.items()}
+
+
+def _cos(E, X):
+    return torch.einsum("nd,bkd->bnk", E, X) if E.dim() == 2 else torch.einsum("bnd,bkd->bnk", E, X)
+
+
+def membership(E, a, tau, b, fx=None):
+    """E: (B, n, d) or (n, d) shared; returns (B, n) logits
+    m(e) = logsumexp([tau_k cos(e, a_k)]_k + [ftau cos(e, p_j)]_j) - b - g * relu(max_j cos(e, n_j) - max_j cos(e, p_j))
+    (the facet and gate terms only when the model was built with facets=True)."""
     E = F.normalize(E, dim=-1)
-    if E.dim() == 2:
-        cos = torch.einsum("nd,bkd->bnk", E, a)
-    else:
-        cos = torch.einsum("bnd,bkd->bnk", E, a)
-    return torch.logsumexp(tau.unsqueeze(1) * cos, -1) - b.unsqueeze(1)
+    z = tau.unsqueeze(1) * _cos(E, a)
+    if fx is None:
+        return torch.logsumexp(z, -1) - b.unsqueeze(1)
+    cp = _cos(E, fx["P"]).masked_fill(~fx["Pm"].unsqueeze(1), -1e4)
+    z = torch.cat([z, fx["ftau"][:, None, None] * cp.clamp(min=-1)], -1)
+    z = z.masked_fill(torch.cat([torch.zeros_like(z[..., : a.shape[1]], dtype=torch.bool),
+                                 ~fx["Pm"].unsqueeze(1).expand(-1, z.shape[1], -1)], -1), -1e4)
+    m = torch.logsumexp(z, -1) - b.unsqueeze(1)
+    if "N" in fx:
+        cn = _cos(E, fx["N"]).masked_fill(~fx["Nm"].unsqueeze(1), -1e4).max(-1).values
+        m = m - fx["g"].unsqueeze(1) * F.relu(cn - cp.max(-1).values)
+    return m
 
 
 def _norm(x):
@@ -117,7 +149,10 @@ def _norm(x):
 class LearnedRegion:
     kind = "learned"
 
-    def __init__(self, anchors, tau, b, T, pos_vecs, shift=0.0):
+    def __init__(self, anchors, tau, b, T, pos_vecs, shift=0.0, neg_vecs=None, ftau=None, g=0.0):
+        self.neg = neg_vecs if neg_vecs is not None else np.zeros((0, anchors.shape[1]), np.float32)
+        self.ftau = ftau  # None: anchors only
+        self.g = float(g)
         self.anchors = anchors  # (K, d)
         self.tau = tau  # (K,)
         self.b = float(b)
@@ -128,8 +163,14 @@ class LearnedRegion:
     def score(self, E):
         E = _norm(E)
         z = (E @ self.anchors.T) * self.tau
+        if self.ftau is not None:
+            cp = E @ self._pos.T
+            z = np.concatenate([z, self.ftau * cp], 1)
         mx = z.max(1, keepdims=True)
-        return (mx[:, 0] + np.log(np.exp(z - mx).sum(1))) - self.b
+        m = (mx[:, 0] + np.log(np.exp(z - mx).sum(1))) - self.b
+        if self.ftau is not None and len(self.neg):
+            m = m - self.g * np.maximum(0, (E @ self.neg.T).max(1) - cp.max(1))
+        return m
 
     def prob(self, E):
         return 1.0 / (1.0 + np.exp(-np.clip((self.score(E) - self.shift) / self.T, -50, 50)))
@@ -143,6 +184,8 @@ class LearnedRegion:
             "bias": round(self.b, 3),
             "temperature": round(self.T, 3),
             "shift": round(self.shift, 3),
+            "facet_tau": None if self.ftau is None else round(float(self.ftau), 3),
+            "neg_gate": round(self.g, 3),
             "anchor_facets": [int(s.argmax()) if s.size else None for s in sims],
             "anchor_facet_cos": [round(float(s.max()), 3) if s.size else None for s in sims],
         }
@@ -175,6 +218,8 @@ class LearnedRegionModel:
         with torch.no_grad():
             Pt = torch.from_numpy(P)[None].to(self.device)
             Nt = torch.from_numpy(N)[None].to(self.device)
-            a, tau, b = self.net(Pt, torch.ones(1, len(P), dtype=torch.bool, device=self.device),
-                                 Nt, torch.ones(1, len(N), dtype=torch.bool, device=self.device))
-        return LearnedRegion(a[0].cpu().numpy(), tau[0].cpu().numpy(), float(b[0]), self.T, P, self.shift)
+            a, tau, b, fx = self.net(Pt, torch.ones(1, len(P), dtype=torch.bool, device=self.device),
+                                     Nt, torch.ones(1, len(N), dtype=torch.bool, device=self.device))
+        ftau = float(fx["ftau"][0]) if fx is not None else None
+        g = float(fx["g"][0]) if fx is not None else 0.0
+        return LearnedRegion(a[0].cpu().numpy(), tau[0].cpu().numpy(), float(b[0]), self.T, P, self.shift, N, ftau, g)

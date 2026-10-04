@@ -5,6 +5,10 @@
 set -euo pipefail
 stage() { local name=$1; shift; mkdir -p runs/$name; echo "== $name: $*" | tee -a runs/$name/train.log; "$@" 2>&1 | tee -a runs/$name/train.log; }
 M=models/atlas-embed
+# v1 region (anchors only) is kept as region_v1.pt; the main region now also uses the input phrases
+# as anchors plus a negative-phrase gate (--no-facets reproduces v1)
+[ -f $M/region_v1.pt ] || { [ -f $M/region.pt ] && mv $M/region.pt $M/region_v1.pt; }
+[ -f runs/b3/done.json ] || stage b3 uv run python -m train.stage_b --model $M --run b3
 [ -f runs/b-nonegphrase/done.json ] || stage b-nonegphrase uv run python -m train.stage_b --model $M --run b-nonegphrase --no-neg-phrases --out $M/region_nonegphrase.pt
 [ -f runs/b-nodistill/done.json ] || stage b-nodistill uv run python -m train.stage_b --model $M --run b-nodistill --no-distill --out $M/region_nodistill.pt
 stage eval3 uv run python -m train.eval --run eval3 --models $M
