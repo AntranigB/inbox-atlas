@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-from atlas.model.encoder import BGE_BASE, QUERY_PREFIX, Encoder, _normalize
+from atlas.model.encoder import BGE_BASE, QUERY_PREFIX, Encoder, _normalize, serial
 
 
 def pick_device():
@@ -73,10 +73,10 @@ class HFEncoder(Encoder):
         return truncate(out, self.dim)
 
     def encode_docs(self, texts):
-        return self._encode(texts)
+        return serial(self._encode, texts)
 
     def encode_queries(self, texts):
-        return self._encode([QUERY_PREFIX + t for t in texts])
+        return serial(self._encode, [QUERY_PREFIX + t for t in texts])
 
 
 def load_base(model_name=BGE_BASE, dim=None, device=None, name="base", **kw):

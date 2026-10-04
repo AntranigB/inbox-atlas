@@ -1,0 +1,19 @@
+Mock iMessage (cd imessage && npm run mock), demo inbox from tests/fixtures, fresh thread.
+Recorded Sunday Oct 4 2026 against the demo-qa branch. Each question was asked 3 times from a
+fresh thread ("reset" first); all 3 answers were identical or near identical.
+
+you: what do I have tomorrow?
+atlas: Lab meeting Mon 10am codec ablation. Priya Natarajan Sep 30: Thanks for the EEG results. Let's go over the codec ablation at lab meeting Monday 10am.
+
+you: did anyone ask me for money?
+atlas: Yes. Venmo Wed Sep 30: Alex requested $42.50 for pizza + uber friday.
+
+you: any emails about coding competitions?
+atlas: Yes. Codeforces Mon Sep 28: Codeforces Round 1043 (Div. 2) starts in 24 hours. LeetCode Mon Sep 21: Weekly Contest 470 results, you ranked 1,204. Cornell ACM Tue Sep 15: ICPC regional team tryouts this Saturday.
+
+you: watch internships
+atlas: Watching "internships". I will text you when new mail about it lands. Text "stop internships" to end it.
+
+you: watches
+atlas: Your watches:
+- internships

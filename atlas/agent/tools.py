@@ -29,9 +29,27 @@ def _slim(h):
     return {k: h.get(k) for k in ("id", "from", "subject", "snippet", "z", "prob", "facet")} | {"date": _fmt_date(h.get("date"))}
 
 
-def search_region(positive=None, negative=None, after=None, before=None, query=None, k=10, **kw):
+def _facets_for(topic, positive, negative):
+    """Facets for a topic. With a topic, the region comes from the same cached Grok expansion the web
+    search and the MCP tools use, so every channel gets the same answer for the same question. The
+    agent's own facets only fill in when the expansion is unavailable; its negatives are added."""
     positive = [p for p in (positive or []) if p]
-    q = query or (positive[0] if positive else "")
+    negative = [n for n in (negative or []) if n]
+    if topic:
+        from atlas.agent import grok
+
+        exp = grok.expand(topic)
+        if exp.get("positive"):
+            neg = list(exp.get("negative") or [])
+            neg += [n for n in negative if n not in neg and len(n.split()) > 1][:2]  # single words are too blunt
+            return list(exp["positive"]), neg
+    return positive, negative
+
+
+def search_region(positive=None, negative=None, after=None, before=None, query=None, k=10, topic=None, **kw):
+    topic = (topic or query or "").strip()
+    positive, negative = _facets_for(topic, positive, negative)
+    q = topic or (positive[0] if positive else "")
     res = hybrid.search(q, positive, negative or [], {"after": after, "before": before, "from": kw.get("from")},
                         k=int(k or 10), mode="region")
     rg = res["region"]
@@ -45,7 +63,8 @@ def search_region(positive=None, negative=None, after=None, before=None, query=N
 
 
 def is_related(topic, positive=None, negative=None, **_):
-    return hybrid.is_related(topic, positive or [], negative or [])
+    positive, negative = _facets_for(topic, positive, negative)
+    return hybrid.is_related(topic, positive, negative)
 
 
 def get_email(id, **_):
@@ -167,13 +186,16 @@ def _fn(name, desc, props, required=()):
 _arr = {"type": "array", "items": {"type": "string"}}
 
 TOOL_SCHEMAS = [
-    _fn("search_region", "Search the inbox with a topic region. Facets are short phrases in the words emails use. "
-        "Returns region stats (size, facet_hits incl. zero-hit facets, nearest_clusters) and hits.",
-        {"positive": {**_arr, "description": "facets that define the topic"},
-         "negative": {**_arr, "description": "near-miss facets to exclude"},
+    _fn("search_region", "Search the inbox with a topic region. Pass topic (the user's topic in 1 to 5 words); the "
+        "server writes facets in the words emails use and the near misses to exclude, the same way the web search "
+        "does. Returns region stats (size, facet_hits incl. zero-hit facets, nearest_clusters), hits (answers) and "
+        "borderline (near misses, not answers).",
+        {"topic": {"type": "string", "description": "what the user is looking for, e.g. 'internship offers'"},
+         "positive": {**_arr, "description": "optional extra facets, used only if the topic cannot be expanded"},
+         "negative": {**_arr, "description": "optional near-miss facets to exclude (multi-word phrases)"},
          "after": {"type": "string", "description": "YYYY-MM-DD"}, "before": {"type": "string", "description": "YYYY-MM-DD"},
          "from": {"type": "string", "description": "sender name or domain substring"},
-         "k": {"type": "integer", "default": 10}}, ["positive"]),
+         "k": {"type": "integer", "default": 10}}, ["topic"]),
     _fn("is_related", "Calibrated yes/no: does the inbox contain anything about this topic?",
         {"topic": {"type": "string"}, "positive": {**_arr, "description": "optional facets"}}, ["topic"]),
     _fn("get_email", "Full cleaned body of one email (max 2000 chars).", {"id": {"type": "string"}}, ["id"]),

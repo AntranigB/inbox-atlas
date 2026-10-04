@@ -1,0 +1,33 @@
+$ uv run python scripts/mcp_check.py      (mcp/server.py over stdio, synthetic vault + demo inbox)
+
+tools: atlas_context, atlas_get, atlas_points_of_interest, atlas_related, atlas_related_folders, atlas_search
+
+=== what pulse widths did I use for the arm servos?
+--- atlas_points_of_interest: 210 tokens, related=True
+1. projects/robotics/arm/ (2/2 notes, score 11.3 #robotics #arm #servo)
+   - projects/robotics/arm/Servo calibration.md#pulse-widths (z 12.1)
+   - projects/robotics/arm/Gripper.md#grip-force (z 7.9)
+   > Elbow servo: 610 to 2380 microseconds. Wrist servo: 500 to 2450 microseconds.
+2. projects/robotics/ (3/3 notes, score 10.8 #robotics #arm #rover)
+   - projects/robotics/arm/Servo calibration.md#pulse-widths (z 12.1)
+   - projects/robotics/arm/Gripper.md#grip-force (z 7.9)
+   - projects/robotics/Rover.md#wiring-notes (z 6.4)
+   > Every joint of the arm uses a hobby servo, and no two servos map pulse width to angle the same way.
+--- atlas_context: 347 tokens, answerable=True
+[obsidian] Servo calibration > Pulse widths (2026-02-18) <projects/robotics/arm/Servo calibration.md#pulse-widths>
+Shoulder servo: 540 microseconds at 0 degrees, 2410 microseconds at 180 degrees. Elbow servo: 610 to 2380 microseconds. Wrist servo: 500 to 2450 microseconds. The elbow buzzes past 170 degrees, so the software limit is 165 degrees for that joint.
+
+[obsidian] Servo calibration (2026-02-18) <projects/robotics/arm/Servo calibration.md#servo-calibration>
+Every joint of the arm uses a hobby servo, and no two servos map pulse width to angle the same way. Calibration means finding the pulse width for 0 and 180 degrees on each joint and storing it in a small table on the microcontroller.
+
+[obsidian] Gripper > Grip force (2026-02-25) <projects/robotics/arm/Gripper.md#grip-force>
+At 6 V the micro servo stalls at about 1.8 kg cm, which gives roughly 4 newtons at the finger pads. That is enough for a soda can but not a full water bottle. A metal gear servo would double it. Servo limits come from [[Servo calibration]].
+
+[obsidian] Rover > Wiring notes (2026-02-11) <projects/robotics/Rover.md#wiring-notes>
+The motor driver enable pins go to PWM capable pins on the microcontroller. Encoder lines need pull up resistors or the tick counts drift. Keep the motor ground and the logic ground joined at one star point near the battery.
+
+=== did I book a yacht charter?
+--- atlas_points_of_interest: 23 tokens, related=False
+Nothing about this in the vault: best section z=-1.1, below the related threshold. Stop searching.
+--- atlas_context: 28 tokens, answerable=False
+Nothing about this in gmail or obsidian: best match z=0.9 is under the 3.0 threshold. Stop searching.

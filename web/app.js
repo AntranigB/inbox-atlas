@@ -26,22 +26,71 @@
   };
 
   /* ---------- search ---------- */
+  let seq = 0;
   async function search(q, keepFacets) {
     if (typeof q === "string") { if (q !== state.query || !keepFacets) { state.positive = null; state.negative = null; } state.query = q; $("#q").value = q; }
     if (!state.query.trim()) return;
-    $("#result-meta").textContent = state.mode === "keyword" ? "searching" : (state.positive ? "searching" : "Grok is expanding your query");
+    const my = ++seq;
+    const expanding = state.mode !== "keyword" && state.mode !== "embed" && !state.positive;
+    showLoading(expanding);
     const body = { query: state.query, mode: state.mode, k: 20 };
     if (state.encoder) body.encoder = state.encoder;
     if (state.positive) { body.positive = state.positive; body.negative = state.negative || []; }
     try {
       const res = await api("/api/search", { body });
+      if (my !== seq) return; // a newer search started, drop this one
       applyResult(res);
+      loadTokens(state.query, res, my);
     } catch (e) {
+      if (my !== seq) return;
+      document.body.classList.remove("busy");
       $("#result-meta").textContent = "search failed: " + e.message;
+      const ol = $("#results");
+      ol.innerHTML = "";
+      ol.append(el("li", "empty", "Search did not come back. Try again, or switch to Keyword."));
     }
   }
 
+  function showLoading(expanding) {
+    document.body.classList.add("busy");
+    $("#result-meta").textContent = expanding ? "Grok is writing facets for your query" : "searching";
+    const v = $("#verdict");
+    v.hidden = false;
+    v.className = "verdict pending";
+    v.innerHTML = "";
+    v.append(el("b", null, expanding ? "EXPANDING" : "SEARCHING"), el("span", "dots", expanding ? "Grok is writing facets" : "placing the region"));
+    if (state.mode === "keyword") v.hidden = true;
+    $("#tokens").hidden = true;
+    if (!state.positive) {
+      // a new question: clear the old region so the glow arrives with the new answer
+      $("#chips").innerHTML = "";
+      state.facetPts = []; state.hits = new Map(); state.members = new Set();
+      drawMap();
+    }
+    const ol = $("#results");
+    ol.innerHTML = "";
+    for (let i = 0; i < 4; i++) {
+      const li = el("li", "skel");
+      li.append(el("i", "s1"), el("i", "s2"), el("i", "s3"));
+      ol.append(li);
+    }
+  }
+
+  async function loadTokens(query, res, my) {
+    const t = $("#tokens");
+    if (!res.region) { t.hidden = true; return; }
+    try {
+      const p = await api("/api/context", { body: { question: query } });
+      if (my !== seq) return;
+      t.hidden = false;
+      t.innerHTML = "";
+      t.append(el("b", null, String(p.tokens)), document.createTextNode(p.answerable ? " tokens for an agent" : " tokens: agent stops here"));
+    } catch (_) { t.hidden = true; }
+  }
+
   function applyResult(res) {
+    document.body.classList.remove("busy");
+    $("#tokens").hidden = true;
     state.res = res;
     if (res.facets && res.region) {
       state.positive = res.facets.positive || [];
@@ -114,8 +163,21 @@
     const hits = res.hits || [];
     const label = { keyword: "BM25 keyword", embed: "plain embedding cosine", region: "region, hub corrected z", hybrid: "region + BM25 (RRF)" }[res.mode] || res.mode;
     $("#result-meta").textContent = `${hits.length} shown, ${label}${res.encoder ? ", " + res.encoder : ""}`;
-    if (!hits.length) { ol.append(el("li", "empty", "No matches.")); return; }
-    for (const h of hits) {
+    if (!hits.length) { ol.append(el("li", "empty", res.mode === "keyword" ? "No email contains those words." : "No matches.")); return; }
+    const none = res.region && !res.region.related;
+    if (none) {
+      $("#result-meta").textContent = `0 in region, ${Math.min(5, hits.length)} closest misses shown`;
+      const li = el("li", "nothing");
+      li.append(el("b", null, "Nothing in your inbox about this."),
+        el("span", null, "The closest matches are below the noise floor, so an agent can stop here instead of reading on."));
+      ol.append(li);
+    }
+    let divided = !res.region || none;
+    for (const h of (none ? hits.slice(0, 5) : hits)) {
+      if (!divided && !h.member) {
+        divided = true;
+        ol.append(el("li", "divider", "outside the region: near misses"));
+      }
       const li = el("li", "hit" + (res.region && !h.member ? " out" : ""));
       li.dataset.id = h.id;
       li.append(el("div", "from", h.from || h.from_addr || "unknown"), el("div", "date", fmtDate(h.date)),
@@ -142,9 +204,10 @@
   async function toggleBody(li, id) {
     const open = li.querySelector(".body");
     if (open) { open.remove(); return; }
-    const b = el("div", "body", "loading");
+    const b = el("div", "body loading", "opening email");
+    b.onclick = (ev) => ev.stopPropagation(); // selecting text should not close it
     li.append(b);
-    try { const e = await api(`/api/email/${encodeURIComponent(id)}`); b.textContent = e.body || "(empty)"; }
+    try { const e = await api(`/api/email/${encodeURIComponent(id)}`); b.classList.remove("loading"); b.textContent = e.body || "(empty)"; }
     catch (e) { b.textContent = "could not load email"; }
   }
 
@@ -263,33 +326,42 @@
         if (state.hover === p.id) { ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 7, 0, 6.283); ctx.stroke(); }
       }
     }
-    // cluster labels
+    // Facet labels get placed first; cluster labels that would collide with a facet label or
+    // with a bigger cluster's label are skipped, so the map never shows overprinted text.
+    const placed = [];
+    const hit = (b) => placed.some((p) => b.x0 < p.x1 && b.x1 > p.x0 && Math.abs(b.y - p.y) < 13);
+    ctx.font = `600 12px ${css("--sans") || "sans-serif"}`;
+    const facetLabels = [];
+    for (const f of state.facetPts) {
+      const [x, y] = toScreen(f.x, f.y, w, h);
+      const tw = ctx.measureText(f.label).width;
+      let b = { x0: x + 10, x1: x + 10 + tw, y: y + 4 };
+      for (let tries = 0; tries < 4 && hit(b); tries++) b = { ...b, y: b.y + 13 };
+      facetLabels.push({ f, x, y, b: hit(b) ? null : b });
+      if (!hit(b)) placed.push(b);
+    }
     ctx.font = `500 11px ${css("--mono") || "monospace"}`;
     ctx.textAlign = "center";
-    for (const c of clusterCenters) {
+    for (const c of clusterCenters.slice().sort((a, b) => b.size - a.size)) {
       if (c.size < 3 && clusterCenters.length > 8) continue;
       let [x, y] = toScreen(c.x, c.y, w, h);
       const half = ctx.measureText(c.label).width / 2 + 4;
       if (half * 2 < w) x = Math.max(half, Math.min(w - half, x)); // keep labels inside on narrow screens
+      const b = { x0: x - half, x1: x + half, y };
+      if (hit(b)) continue;
+      placed.push(b);
       ctx.lineWidth = 3; ctx.strokeStyle = paper; ctx.fillStyle = active ? css("--ink-3") : ink;
       ctx.strokeText(c.label, x, y); ctx.fillText(c.label, x, y);
     }
-    // facet stars
+    // facet stars on top
     ctx.font = `600 12px ${css("--sans") || "sans-serif"}`;
     ctx.textAlign = "left";
-    const placed = [];
-    for (const f of state.facetPts) {
-      const [x, y] = toScreen(f.x, f.y, w, h);
+    for (const { f, x, y, b } of facetLabels) {
       star(x, y, 7);
       ctx.fillStyle = paper; ctx.strokeStyle = `rgb(${glow})`; ctx.lineWidth = 2; ctx.fill(); ctx.stroke();
-      // skip labels that would collide with one already drawn
-      let ly = y + 4;
-      const tw = ctx.measureText(f.label).width;
-      for (let tries = 0; tries < 4 && placed.some((b) => x + 10 < b.x1 && x + 10 + tw > b.x0 && Math.abs(ly - b.y) < 13); tries++) ly += 13;
-      if (placed.some((b) => x + 10 < b.x1 && x + 10 + tw > b.x0 && Math.abs(ly - b.y) < 13)) continue;
-      placed.push({ x0: x + 10, x1: x + 10 + tw, y: ly });
+      if (!b) continue;
       ctx.lineWidth = 3; ctx.strokeStyle = paper; ctx.fillStyle = `rgb(${glow})`;
-      ctx.strokeText(f.label, x + 10, ly); ctx.fillText(f.label, x + 10, ly);
+      ctx.strokeText(f.label, b.x0, b.y); ctx.fillText(f.label, b.x0, b.y);
     }
   }
 
@@ -421,6 +493,7 @@
     if (!text.trim()) return;
     addMsg("user", text);
     const wait = addMsg("bot thinking", "navigating your inbox");
+    wait.append(el("span", "dots"));
     try {
       const res = chatApi
         ? await api("/api/chat", { body: { text, channel: "web", session_id: state.session } })
@@ -443,6 +516,7 @@
 
   /* ---------- wiring ---------- */
   $("#search-form").addEventListener("submit", (e) => { e.preventDefault(); search($("#q").value); });
+  document.querySelectorAll("#demo-row .demo-q").forEach((b) => b.addEventListener("click", () => search(b.textContent)));
   $("#chat-form").addEventListener("submit", (e) => { e.preventDefault(); const v = $("#chat-in").value; $("#chat-in").value = ""; ask(v); });
   document.querySelectorAll("#mode button").forEach((b) => b.addEventListener("click", () => {
     document.querySelectorAll("#mode button").forEach((x) => x.classList.toggle("on", x === b));
@@ -457,7 +531,7 @@
     } catch (e) { $("#status").textContent = "server offline"; }
     try {
       const enc = await api("/api/encoders");
-      const avail = enc.available || [];
+      const avail = (enc.available || []).slice().sort((a, b) => (/^base/.test(b) ? 1 : 0) - (/^base/.test(a) ? 1 : 0));
       if (avail.length >= 2) {
         const seg = $("#encoder");
         seg.hidden = false;
@@ -466,7 +540,10 @@
           b.title = name;
           b.onclick = () => {
             seg.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
-            state.encoder = name; loadMap().then(() => state.query && search(null, true));
+            state.encoder = name;
+            document.body.classList.add("busy");
+            $("#map-meta").textContent = `loading the ${b.textContent.toLowerCase()} encoder`;
+            loadMap().then(() => { document.body.classList.remove("busy"); if (state.query) search(null, true); });
           };
           seg.append(b);
         });
