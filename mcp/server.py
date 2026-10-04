@@ -34,8 +34,9 @@ from atlas.context import pack, tree  # noqa: E402
 
 INSTRUCTIONS = (
     "Inbox Atlas searches the user's email and Obsidian notes by meaning. Call atlas_context first: it returns "
-    "only the sentences that answer the question, under a token budget. If it returns answerable=false, the "
-    "topic is not in the data: stop searching instead of grepping more files. Use atlas_get(uri) only when an "
+    "only the relevant sentences, under a token budget, with source URIs. answerable=false means no confident "
+    "match or an insufficient budget, not proof the topic is absent. If needed, rephrase once, use atlas_search, "
+    "or raise the budget; avoid repeated blind searches. Use atlas_get(uri) only when an "
     "excerpt is not enough. For a large or nested vault, atlas_points_of_interest(question) first shows which "
     "folders and notes the question lives in; pass within=<folder> to drill down, then atlas_get the note.")
 
@@ -54,12 +55,10 @@ def _sources(sources):
 def atlas_context(question: str, budget_tokens: int = 800, sources: list[str] | None = None) -> dict:
     """Minimal context that answers a question from the user's email (gmail) and notes (obsidian).
 
-    Returns answerable, confidence, the packed context string, items with uri/title/date/excerpt, and
-    token counts. answerable=false means nothing relevant exists: stop searching."""
+    Returns answerable, status, confidence, context with source URIs, and token counts.
+    The token budget covers context, not the JSON envelope. No confident match is not proof of absence."""
     p = pack.build_context(question, budget_tokens=int(budget_tokens), sources=_sources(sources))
-    return {k: p.get(k) for k in ("answerable", "confidence", "reason", "context", "items", "tokens",
-                                   "tokens_saved_vs_naive")} | {"region": {k: p["region"].get(k) for k in
-                                                                          ("facets", "size", "max_z")}}
+    return pack.tool_payload(p)
 
 
 @server.tool()

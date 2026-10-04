@@ -3,7 +3,8 @@
 Agents usually burn context two ways: they paste whole documents, or they grep and open file after file.
 Inbox Atlas hands them the minimal context instead: the region a question maps to, the few emails or
 notes inside it, and only the sentences that matter, under a token budget. When the region is empty
-it says so (`answerable: false`, about 30 tokens) so the agent stops searching.
+it returns `answerable: false`. This means no confident match, not proof that the information
+does not exist. A separate `insufficient_budget` status means matches were found but did not fit.
 
 ## Setup
 
@@ -22,7 +23,7 @@ to Grok (for facets); the packed excerpts go wherever your agent sends its conte
 
 | tool | what it returns |
 |---|---|
-| `atlas_context(question, budget_tokens=800, sources=["gmail","obsidian"])` | `answerable`, `confidence`, a ready-to-paste `context` string, `items` (source, uri, title, date, excerpt, z), `tokens`, `tokens_saved_vs_naive` |
+| `atlas_context(question, budget_tokens=800, sources=["gmail","obsidian"])` | `answerable`, `status`, `confidence`, `reason`, `context` with source URIs, `tokens`, `response_tokens` |
 | `atlas_search(query, k=10, sources)` | ranked hits with uri, title, date, a 160 char snippet and z |
 | `atlas_related(topic, sources)` | calibrated yes/no with up to 3 example uris |
 | `atlas_get(uri, max_tokens=1500)` | one email (`gmail:<id>`), one note section (`path.md#anchor`) or a whole note (`path.md`), capped |
@@ -33,12 +34,21 @@ Same thing over HTTP from the main server (`uv run python server.py`):
 
 ```bash
 curl -s localhost:8765/api/context -H 'content-type: application/json' \
-  -d '{"question": "when is my flight?", "budget_tokens": 300}'
+  -d '{"question": "when is my flight?", "budget_tokens": 300, "compact": true}'
 curl -s localhost:8765/api/context/get -H 'content-type: application/json' -d '{"uri": "projects/Japan trip.md"}'
 curl -s localhost:8765/api/context/folders -H 'content-type: application/json' \
   -d '{"question": "how much grip force does the claw have?", "within": "projects/robotics"}'
 curl -s 'localhost:8765/api/context/related_folders?path=kitchen&k=3'
 ```
+
+`atlas_context` now returns a compact payload: each excerpt appears only in `context`, together
+with its citation URI, instead of being repeated in an `items` array. Clients that need the old
+structured items can use `POST /api/context` with `compact: false` (the HTTP default).
+
+`budget_tokens` caps **only the context string**, including headers and separators. Zero returns
+an empty context; negative budgets are rejected. `response_tokens` measures compact JSON before
+adding the counter itself; it excludes MCP transport framing and is not total agent/API usage.
+Additional query-expansion and answer-generation calls have their own token costs.
 
 ## Run the MCP server
 
@@ -58,7 +68,8 @@ claude mcp add --transport http inbox-atlas http://127.0.0.1:8767/mcp
 ```
 
 A line for the vault's `CLAUDE.md` that makes the planning system use it:
-"Before opening notes, call `atlas_context` with the question. If it says answerable=false, do not grep."
+"Before opening notes, call `atlas_context`. On insufficient_budget, increase the budget. On
+no_confident_match, rephrase once or try atlas_search if the question is important; avoid blind search loops."
 
 ### Hermes Agent
 
@@ -104,13 +115,21 @@ client works with the generic stdio command above.
 
 1. Grok turns the question into facets (cached in `data/cache/expand.json`).
 2. The facets become a region; every email and note section gets a hub-corrected z score.
-3. Calibrated verdict: top z >= 3.0 and raw >= floor. If not, return `answerable: false` and stop.
+3. Relevance verdict: top z >= 3.0 and raw >= floor. Otherwise return `no_confident_match`.
 4. Members of the region are ranked by z. The budget is the recall knob: <= 400 tokens keeps the
    core (z >= 0.6 x best) and 2 sentences per item, <= 1000 keeps z >= 0.35 x best and 4 sentences,
    above that the whole region plus near members (z >= 2) and 6 sentences.
-5. Every sentence of every kept item is scored with the same encoder against the same region; items
-   keep their best sentences (in reading order, `...` for gaps). Bodies under 70 tokens stay whole.
-6. Greedy packing under the budget, dropping weakest sentences first. Tokens are tiktoken cl100k_base.
+5. Preserve single-line wraps and adjacent event details, and retain short answers such as dates,
+   prices, and codes. Score the resulting sentences with the same encoder against the region;
+   keep the best sentences in reading order (`...` for gaps). Bodies under 70 tokens stay whole.
+6. Greedy packing checks the actual rendered context, including headers and truncation markers.
+   Repeated excerpts are skipped only when source, title, sender, and date also match. Tokens use
+   tiktoken cl100k_base. Full-document savings count only represented documents, once per note.
+
+Facet expansion's sender/date filters are applied to context retrieval. Source selection remains
+controlled by the caller. The rich HTTP response retains `items` and region diagnostics.
+
+For a local, no-LLM comparison on your own data, see [Private evaluation](PRIVATE_EVAL.md).
 
 Numbers: [eval/token_results.md](../eval/token_results.md).
 

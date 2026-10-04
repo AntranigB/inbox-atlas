@@ -5,7 +5,7 @@ POST /api/context/folders and GET /api/context/related_folders?path= navigate th
 from __future__ import annotations
 
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from atlas.context import pack, tree
 from atlas.db import qlog
@@ -15,9 +15,10 @@ router = APIRouter()
 
 class ContextBody(BaseModel):
     question: str
-    budget_tokens: int = 800
+    budget_tokens: int = Field(default=800, ge=0)
     sources: list[str] | None = None
-    k: int = 8
+    k: int = Field(default=8, ge=1)
+    compact: bool = False
 
 
 class FoldersBody(BaseModel):
@@ -37,7 +38,7 @@ def api_context(b: ContextBody):
     with qlog.timed("agent_context", b.question) as row:
         p = pack.build_context(b.question, budget_tokens=b.budget_tokens, sources=tuple(b.sources or pack.SOURCES), k=b.k)
         row.update(region_size=len(p.get("items") or []), tokens_returned=p.get("tokens"))
-    return pack.json.loads(pack.dumps(p))
+    return pack.json.loads(pack.dumps(pack.tool_payload(p) if b.compact else p))
 
 
 @router.post("/api/context/get")

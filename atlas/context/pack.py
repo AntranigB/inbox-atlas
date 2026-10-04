@@ -29,7 +29,6 @@ from atlas.search.engine import get_engine
 SOURCES = ("gmail", "obsidian")
 MAX_SENTS_PER_ITEM = 4
 WHOLE_BODY_TOKENS = 70  # bodies this short are kept whole: cheaper than fragmenting them
-SENT_MIN_CHARS = 12
 
 
 @lru_cache(maxsize=1)
@@ -50,11 +49,25 @@ def count_tokens(text: str) -> int:
 
 
 def truncate_tokens(text: str, max_tokens: int) -> str:
+    max_tokens = max(0, int(max_tokens))
+    if not max_tokens:
+        return ""
     e = _enc()
     if not e:
         return text[: max_tokens * 4]
     ids = e.encode(text, disallowed_special=())
-    return text if len(ids) <= max_tokens else e.decode(ids[:max_tokens]) + " ..."
+    if len(ids) <= max_tokens:
+        return text
+    # The ellipsis is part of the budget, too. Re-encoding guards against token
+    # boundaries changing when the suffix is appended (and split Unicode tokens).
+    suffix = " ..." if max_tokens >= 2 else ""
+    keep = max_tokens - len(e.encode(suffix))
+    while keep >= 0:
+        cut = e.decode(ids[:keep]).rstrip("\ufffd") + suffix
+        if count_tokens(cut) <= max_tokens:
+            return cut
+        keep -= 1
+    return ""
 
 
 # ---------- documents and uris ----------
@@ -108,14 +121,25 @@ def get_doc(uri: str, max_tokens: int = 1500, conn=None) -> dict:
 
 # ---------- sentence extraction ----------
 
-_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\[\"'(*])|\n+")
+_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\[\"'(*])")
 
 
 def sentences(text: str) -> list[str]:
     out = []
-    for s in _SPLIT.split(text or ""):
+    # Email commonly wraps prose at 72 columns and puts event title/date/location
+    # on successive lines. A single newline is not a sentence boundary. Retain
+    # those relationships; blank lines still delimit paragraphs.
+    paragraphs = re.split(r"\n\s*\n", text or "")
+    spans = [s for p in paragraphs for s in _SPLIT.split(re.sub(r"\s+", " ", p))]
+    for s in spans:
         s = re.sub(r"\s+", " ", s).strip(" -*>\t")
-        if len(s) >= SENT_MIN_CHARS and not s.startswith("---"):
+        # A short line can be the entire answer: "Oct 6, 8am", "$42", "K7QW2P".
+        # Remove separators, not facts. Keep adjacent label/value lines together
+        # so the extractor cannot select "Confirmation:" without its code.
+        if any(c.isalnum() for c in s):
+            if out and (out[-1].endswith(":") or len(s) < 12 or len(out[-1]) < 12):
+                out[-1] += " " + s
+                continue
             out.append(s)
     return out
 
@@ -156,8 +180,7 @@ def _excerpt(ss, idxs) -> str:
 
 
 def _not_found(sources, verdict) -> str:
-    return (f"Nothing about this in {' or '.join(sources)}: best match z={verdict['max_z']:.1f} "
-            f"is under the {R.Z_MIN:.1f} threshold. Stop searching.")
+    return f"No confident match in {' or '.join(sources)}. Relevant information may still exist."
 
 
 def build_context(question: str, budget_tokens: int = 800, sources=SOURCES, k: int = 8,
@@ -170,11 +193,17 @@ def build_context(question: str, budget_tokens: int = 800, sources=SOURCES, k: i
     """
     from atlas.agent import grok
 
+    budget_tokens = int(budget_tokens)
+    if budget_tokens < 0:
+        raise ValueError("budget_tokens must be nonnegative")
+    if k < 1:
+        raise ValueError("k must be positive")
     eng = engine or get_engine()
     sources = tuple(s for s in (sources or SOURCES) if s in SOURCES) or SOURCES
     exp = facets or (grok.expand(question) if use_grok else {"positive": [], "negative": []})
     pos, neg = list(exp.get("positive") or []), list(exp.get("negative") or [])
-    res = hybrid.search(question, pos, neg, {"sources": list(sources)}, k=max(k * 3, 12), mode="region", engine=eng)
+    filters = {**(exp.get("filters") or {}), "sources": list(sources)}
+    res = hybrid.search(question, pos, neg, filters, k=max(k * 3, 12), mode="region", engine=eng)
     rg = res["region"]
     region = {"facets": [question] + [p for p in pos if p != question], "anti_facets": neg, "size": rg["size"],
               "max_z": rg["max_z"], "related": rg["related"],
@@ -190,10 +219,13 @@ def build_context(question: str, budget_tokens: int = 800, sources=SOURCES, k: i
         hits = [h for h in hits if h["z"] >= rel_z * top_z][:k]
     if not rg["related"] or not hits:
         reason = _not_found(sources, rg)
-        return {**base, "answerable": False, "reason": reason, "items": [], "context": reason,
-                "tokens": count_tokens(reason), "tokens_saved_vs_naive": 0}
+        context = truncate_tokens(reason, budget_tokens)
+        return {**base, "answerable": False, "status": "no_confident_match", "reason": reason,
+                "items": [], "context": context, "tokens": count_tokens(context), "tokens_saved_vs_naive": 0}
 
-    rows = [store.get_email(eng.conn, h["id"]) or {} for h in hits]
+    pairs = [(h, eng.get_email(h["id"])) for h in hits]
+    pairs = [(h, r) for h, r in pairs if r]
+    hits, rows = [h for h, _ in pairs], [r for _, r in pairs]
     # score every candidate sentence against the same region the hits came from
     labels = region["facets"]
     P = eng.enc.encode_queries(labels)
@@ -210,12 +242,9 @@ def build_context(question: str, budget_tokens: int = 800, sources=SOURCES, k: i
     for (j, i, _), v in zip(flat, S):
         scores.setdefault(j, {})[i] = float(v)
     cut = float(S.mean() + 0.5 * S.std()) if len(S) else 0.0
-
-    items, used, naive = [], 0, 0
+    items, naive, seen_docs, seen_excerpts = [], 0, set(), set()
     budget = int(budget_tokens)
     for j, (h, r) in enumerate(zip(hits, rows)):
-        naive += count_tokens(full_note_text(eng.conn, r["thread_id"]) if r.get("source") == "obsidian"
-                              else doc_text(r))
         item = {"source": hybrid.source_kind(r.get("source")), "uri": uri_of(r), "title": r.get("subject") or "",
                 "date": _fmt_date(r.get("date")),
                 "from": None if r.get("source") == "obsidian" else (r.get("from_name") or r.get("from_addr")),
@@ -229,24 +258,50 @@ def build_context(question: str, budget_tokens: int = 800, sources=SOURCES, k: i
             ranked = sorted(sc, key=lambda i: -sc[i])
             keep = [ranked[0]] + [i for i in ranked[1:max_sents] if sc[i] >= cut]
             item["excerpt"] = _excerpt(ss, keep)
-        cost = count_tokens(_header(item) + "\n" + item["excerpt"]) + (2 if items else 0)
+        # Identical text under different senders, subjects, or dates can mean
+        # different things (e.g. "tomorrow"). Deduplicate only matching metadata.
+        fingerprint = (item["source"], item["title"], item["from"], item["date"],
+                       " ".join(item["excerpt"].casefold().split()))
+        if fingerprint in seen_excerpts:
+            continue
         # drop the weakest sentences until the item fits what is left of the budget
-        while keep and used + cost > budget and len(keep) > 1:
+        while keep and count_tokens(render(items + [item])) > budget and len(keep) > 1:
             keep.remove(min(keep, key=lambda i: sc[i]))
             item["excerpt"] = _excerpt(ss, keep)
-            cost = count_tokens(_header(item) + "\n" + item["excerpt"]) + (2 if items else 0)
-        if used + cost > budget:
+        if count_tokens(render(items + [item])) > budget:
             if items:
                 continue  # a later, shorter item may still fit
-            item["excerpt"] = truncate_tokens(item["excerpt"], max(budget - count_tokens(_header(item)) - 4, 8))
-            cost = count_tokens(_header(item) + "\n" + item["excerpt"])
+            room = budget - count_tokens(_header(item) + "\n")
+            while room > 0:
+                item["excerpt"] = truncate_tokens(item["excerpt"], room)
+                if count_tokens(render([item])) <= budget:
+                    break
+                room -= 1
+            if room <= 0 or not item["excerpt"].strip(" ."):
+                continue
         items.append(item)
-        used += cost
+        seen_excerpts.add(fingerprint)
+        doc_id = r["thread_id"] if r.get("source") == "obsidian" else r["id"]
+        if doc_id not in seen_docs:
+            naive += count_tokens(full_note_text(eng.conn, doc_id) if r.get("source") == "obsidian" else doc_text(r))
+            seen_docs.add(doc_id)
     context = render(items)
     tokens = count_tokens(context)
-    return {**base, "answerable": True, "reason": f"{len(items)} items from a region of {rg['size']}",
+    return {**base, "answerable": bool(items), "status": "ok" if items else "insufficient_budget",
+            "reason": f"{len(items)} items from a region of {rg['size']}" if items else "Relevant matches did not fit the context budget.",
             "items": items, "context": context, "tokens": tokens, "naive_tokens": naive,
             "tokens_saved_vs_naive": max(naive - tokens, 0)}
+
+
+def tool_payload(p: dict) -> dict:
+    """Compact agent response: citations/excerpts appear once in context, not twice.
+
+    The budget covers context only. response_tokens counts the whole compact JSON
+    payload, excluding this counter and transport-specific MCP framing.
+    """
+    out = {k: p.get(k) for k in ("answerable", "status", "confidence", "reason", "context", "tokens")}
+    out["response_tokens"] = count_tokens(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
+    return out
 
 
 def dumps(pack: dict) -> str:
