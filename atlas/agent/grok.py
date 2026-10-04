@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import threading
+import time
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -132,9 +133,70 @@ def _fallback_answer(text, channel):
     return {"reply": _trim(reply, channel), "hits": hits, "region": full.get("region")}
 
 
-def ask(text: str, channel: str = "web", history=None) -> dict:
-    """Answer a question about the inbox with Grok + tools. Returns {reply, hits, region}."""
+def _hit_ids(out):
+    """Email ids a tool result points at (for chat history)."""
+    if not isinstance(out, dict):
+        return []
+    ids = [h["id"] for key in ("hits", "examples", "emails") for h in (out.get(key) or [])
+           if isinstance(h, dict) and h.get("id")]
+    if not ids and isinstance(out.get("id"), str) and out.get("subject") is not None:
+        ids = [out["id"]]
+    return ids
+
+
+def _chat_db():
+    try:
+        from atlas.search.engine import get_engine
+
+        return get_engine().backend
+    except Exception as e:
+        log.warning("chat history unavailable: %s", e)
+        return None
+
+
+def _persist(db, session_id, channel, user_handle, text, res, latency_ms):
+    """user turn, each tool call (name, args, hit ids), assistant reply. Never raises."""
+    try:
+        db.append_message(session_id, "user", text, channel=channel, user_handle=user_handle)
+        for t in res.get("trace") or []:
+            db.append_message(session_id, "tool", None, tool_name=t.get("tool"), tool_args=t.get("args"),
+                              hits=t.get("hits") or [])
+        hits = [h.get("id") for h in res.get("hits") or [] if isinstance(h, dict)]
+        db.append_message(session_id, "assistant", res.get("reply"), hits=hits)
+        rg = res.get("region") or {}
+        db.log_query(channel, text, n_facets=len(((res.get("facets") or {}).get("positive")) or []) or None,
+                     region_size=rg.get("size"), tokens_returned=len(res.get("reply") or "") // 4,
+                     latency_ms=latency_ms)
+    except Exception as e:
+        log.warning("saving chat turn failed: %s", e)
+
+
+def ask(text: str, channel: str = "web", history=None, session_id: str | None = None,
+        user_handle: str | None = None, persist: bool = True) -> dict:
+    """Answer a question about the inbox with Grok + tools. Returns {reply, hits, region, session_id}.
+
+    Every turn is saved through the storage backend (Postgres chat_messages when ATLAS_DB=pg).
+    Pass session_id to continue a conversation; its history is loaded when `history` is None.
+    persist=False skips saving (for callers that keep their own history)."""
+    t0 = time.time()
     channel = channel if channel in prompts.STYLE else "web"
+    db = _chat_db() if persist else None
+    if db is not None:
+        try:
+            if session_id and history is None:
+                history = db.history(session_id, 12)
+            session_id = db.new_session(channel, user_handle, session_id)
+        except Exception as e:
+            log.warning("loading chat history failed: %s", e)
+            db = None
+    res = _ask(text, channel, history)
+    if db is not None:
+        _persist(db, session_id, channel, user_handle, text, res, (time.time() - t0) * 1000)
+        res["session_id"] = session_id
+    return res
+
+
+def _ask(text: str, channel: str, history=None) -> dict:
     if not _key():
         return _fallback_answer(text, channel)
     sys = prompts.SYSTEM.format(today=dt.datetime.now(ZoneInfo(config.TIMEZONE)).strftime("%A %Y-%m-%d"),
@@ -174,7 +236,7 @@ def ask(text: str, channel: str = "web", history=None) -> dict:
                     out = {"error": "tool call limit reached"}
                 else:
                     out = tools.run_tool(name, args)
-                trace.append({"tool": name, "args": args})
+                trace.append({"tool": name, "args": args, "hits": _hit_ids(out)})
                 msgs.append({"role": "tool", "tool_call_id": tc["id"], "content": json.dumps(tools._clean(out))[:6000]})
     except GrokError as e:
         log.warning("ask failed: %s", e)

@@ -1,0 +1,24 @@
+# Local Tiger Data stack: Postgres 17 + TimescaleDB + pgvector + pgvectorscale + pgai.
+# Start: docker compose up -d   (password from ATLAS_PG_PASSWORD in .env, default "atlas")
+# Then: DATABASE_URL=postgresql://postgres:atlas@localhost:5433/atlas
+name: inbox-atlas
+services:
+  tiger:
+    image: timescale/timescaledb-ha:pg17
+    container_name: atlas-tiger
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${ATLAS_PG_PASSWORD:-atlas}
+      POSTGRES_DB: atlas
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - atlas-tiger:/home/postgres/pgdata
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d atlas"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  atlas-tiger:

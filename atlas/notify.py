@@ -119,7 +119,7 @@ def format_agenda(a: dict) -> str:
 def _agent_ask(text: str, history=None) -> str:
     from atlas.agent.grok import ask  # search-agent branch
 
-    r = ask(text, channel="imessage", history=history or [])
+    r = ask(text, channel="imessage", history=history or [], session_id="imessage")
     return r.get("reply", "") if isinstance(r, dict) else str(r)
 
 

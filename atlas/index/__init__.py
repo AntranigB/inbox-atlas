@@ -6,6 +6,7 @@
 """
 
 import json
+import logging
 import os
 import sys
 import threading
@@ -19,6 +20,18 @@ from atlas import config, store
 PROBES_PATH = Path(__file__).with_name("probes.txt")
 EMBED_BATCH = 256
 _lock = threading.Lock()
+log = logging.getLogger("atlas.index")
+
+
+def _mirror_pg(name, ids, E, conn=None):
+    """When ATLAS_DB=pg, copy these emails and vectors into Postgres too. Never fails the build."""
+    try:
+        from atlas.db.backend import mirror_to_pg, pg_enabled
+
+        if pg_enabled() and len(ids):
+            mirror_to_pg(name, list(ids), E, conn)
+    except Exception as e:
+        log.warning("postgres mirror failed for %s: %s", name, e)
 
 
 def index_dir(name):
@@ -142,6 +155,7 @@ class Index:
                     c["size"] = sizes.get(c["id"], 0)
             if save:
                 self.save()
+        _mirror_pg(self.name, ids, vecs)
 
     def save(self):
         d = index_dir(self.name)
@@ -177,6 +191,7 @@ def build_index(encoder, conn=None, with_map=True, grok=False, verbose=False):
     _save_json(d / "meta.json", {"encoder": encoder.name, "dim": int(E.shape[1]) if E.ndim == 2 else encoder.dim,
                                  "n": len(ids), "built_at": int(time.time())})
     idx.save()
+    _mirror_pg(encoder.name, ids, E, conn)
     _cache.pop(encoder.name, None)
     return idx
 

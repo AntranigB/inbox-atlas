@@ -32,7 +32,7 @@ def filter_mask(eng: Engine, filters: dict | None) -> np.ndarray:
     if not f:
         return mask
     after, before, frm = _ts(f.get("after")), _ts(f.get("before"), end=True), f.get("from")
-    meta = {r[0]: (r[1], r[2], r[3]) for r in eng.conn.execute("select id, date, from_addr, from_name from emails")}
+    meta = eng.email_meta()
     for i, eid in enumerate(ids):
         date, addr, name = meta.get(eid, (None, "", ""))
         if after and (date or 0) < after:
@@ -53,7 +53,7 @@ def rrf(rank_lists, k=RRF_K):
 
 
 def _hit(eng, eid, **extra):
-    r = store.get_email(eng.conn, eid) or {}
+    r = eng.get_email(eid) or {}
     h = {"id": eid, "from": r.get("from_name") or r.get("from_addr"), "from_addr": r.get("from_addr"),
          "date": r.get("date"), "subject": r.get("subject"), "snippet": (r.get("snippet") or (r.get("body") or "")[:200])}
     h.update({k: v for k, v in extra.items() if v is not None})
@@ -63,7 +63,7 @@ def _hit(eng, eid, **extra):
 def keyword_ranks(eng, text, mask, n=200):
     pos = eng.index.pos
     out = []
-    for eid, s in store.fts_search(eng.conn, text, n):
+    for eid, s in eng.fts(text, n):
         i = pos.get(eid)
         if i is not None and mask[i]:
             out.append((eid, s))
@@ -112,6 +112,14 @@ def search(query: str, positive=None, negative=None, filters=None, k=10, mode="r
         return out
     if mode == "embed":
         q = eng.enc.encode_queries([query])[0]
+        if getattr(eng.backend, "kind", "") == "pg":  # pgvector HNSW knn
+            try:
+                nn = eng.backend.knn(q, k, encoder=eng.name, filters=filters)
+                out["hits"] = [_hit(eng, eid, cos=round(c, 3)) for eid, c in nn]
+                out["region"] = None
+                return out
+            except Exception:
+                pass
         cos = ix.E @ q if len(ix.E) else np.zeros(0)
         cos = np.where(mask, cos, -np.inf)
         order = np.argsort(-cos)[:k]

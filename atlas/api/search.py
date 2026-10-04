@@ -22,6 +22,8 @@ class AskBody(BaseModel):
     text: str
     channel: str = "web"
     history: list | None = None
+    session_id: str | None = None
+    user_handle: str | None = None
 
 
 class SearchBody(BaseModel):
@@ -88,7 +90,7 @@ def api_related(topic: str, encoder: str | None = None):
 
 @router.post("/api/ask")
 def api_ask(b: AskBody):
-    return grok.ask(b.text, b.channel, b.history)
+    return grok.ask(b.text, b.channel, b.history, session_id=b.session_id, user_handle=b.user_handle)
 
 
 @router.get("/api/map")
@@ -102,7 +104,7 @@ def api_map(encoder: str | None = None):
 
 @router.get("/api/email/{eid}")
 def api_email(eid: str):
-    r = store.get_email(get_engine().conn, eid)
+    r = get_engine().get_email(eid)
     if not r:
         raise HTTPException(404, "no such email")
     return r

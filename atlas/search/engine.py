@@ -100,7 +100,12 @@ def _try_load_index(name):
 class Engine:
     def __init__(self, spec: str | None = None, conn=None):
         self.spec = spec or config.ENCODER
+        explicit = conn is not None
         self.conn = conn or store.connect()
+        from atlas.db.backend import get_backend
+
+        # an injected SQLite connection (tests) always means the SQLite backend
+        self.backend = get_backend(conn=self.conn, force_sqlite=explicit)
         self.enc = load_encoder(self.spec)
         self.name = getattr(self.enc, "name", self.spec)
         self.lock = threading.Lock()
@@ -108,7 +113,10 @@ class Engine:
 
     def reload(self):
         idx = _try_load_index(self.name)
-        if idx is not None and len(getattr(idx, "ids", [])):
+        pg = self._pg_index(idx)
+        if pg is not None:
+            self.index = pg
+        elif idx is not None and len(getattr(idx, "ids", [])):
             self.index = MemIndex(ids=list(idx.ids), E=np.asarray(idx.E, np.float32),
                                   mu=getattr(idx, "mu", None), sigma=getattr(idx, "sigma", None),
                                   map=getattr(idx, "map", None), built=getattr(idx, "map", None) is not None)
@@ -122,6 +130,42 @@ class Engine:
         self._null = {}
         if ix.mu is None or ix.sigma is None:
             ix.mu, ix.sigma = self.PR.mean(1), self.PR.std(1) + 1e-3
+
+    def _pg_index(self, idx):
+        """Postgres backend: vectors come from email_vectors; map and hub stats from the file index."""
+        if getattr(self.backend, "kind", "") != "pg":
+            return None
+        try:
+            ids, E = self.backend.vectors_matrix(self.name, reload=True)
+        except Exception as e:
+            log.warning("loading vectors from postgres failed: %s", e)
+            return None
+        if not len(ids):
+            log.info("no %s vectors in postgres, using the file index", self.name)
+            return None
+        mu = sigma = None
+        fpos = getattr(idx, "pos", None) if idx is not None else None
+        if fpos and getattr(idx, "mu", None) is not None and all(i in fpos for i in ids):
+            rows = [fpos[i] for i in ids]
+            mu, sigma = np.asarray(idx.mu)[rows], np.asarray(idx.sigma)[rows]
+        m = getattr(idx, "map", None) if idx is not None else None
+        return MemIndex(ids=list(ids), E=np.asarray(E, np.float32), mu=mu, sigma=sigma, map=m, built=m is not None)
+
+    # storage access that follows the backend; SQLite stays the fallback for rows not mirrored yet
+    def get_email(self, eid):
+        r = None
+        if getattr(self.backend, "kind", "") == "pg":
+            try:
+                r = self.backend.get_email(eid)
+            except Exception as e:
+                log.warning("pg get_email failed: %s", e)
+        return r or store.get_email(self.conn, eid)
+
+    def fts(self, text, n=50):
+        return self.backend.fts(text, n)
+
+    def email_meta(self):
+        return self.backend.email_meta()
 
     def null_stats(self, k: int, trials: int = 64):
         """Per-email mu/sigma of the region score when the k facets are random probe topics.
@@ -157,7 +201,7 @@ class Engine:
         missing = [i for i in new_ids if i not in self.index.pos]
         if not missing:
             return
-        rows = [store.get_email(self.conn, i) for i in missing]
+        rows = [self.get_email(i) for i in missing]
         rows = [r for r in rows if r]
         if not rows:
             return
