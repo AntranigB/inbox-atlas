@@ -46,7 +46,7 @@ def is_related(topic, positive=None, negative=None, **_):
 
 
 def get_email(id, **_):
-    r = store.get_email(get_engine().conn, id)
+    r = get_engine().get_email(id)
     if not r:
         return {"error": f"no email {id}"}
     return {"id": r["id"], "from": r["from_name"] or r["from_addr"], "from_addr": r["from_addr"],
@@ -146,7 +146,7 @@ def check_watches(new_ids):
         floor = R.floor_for(eng.name)
         for i in rows:
             if z[i] >= R.Z_MIN and raw[i] >= floor:
-                e = store.get_email(eng.conn, eng.index.ids[i]) or {}
+                e = eng.get_email(eng.index.ids[i]) or {}
                 out.append({"watch_name": w["name"], "name": w["name"], "watch": w, "id": e.get("id"),
                             "from": e.get("from_name") or e.get("from_addr"), "subject": e.get("subject"),
                             "date": _fmt_date(e.get("date")), "snippet": e.get("snippet"), "z": round(float(z[i]), 2)})

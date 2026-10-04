@@ -17,6 +17,8 @@ dependencies = [
   "icalendar>=6.0",
   "recurring-ical-events>=3.0",
   "tzdata",
+  "psycopg[binary]>=3.3.6",
+  "pgvector>=0.5.0",
 ]
 
 [project.optional-dependencies]
@@ -27,7 +29,7 @@ dev = ["pytest>=8", "pytest-asyncio>=0.23", "respx>=0.21"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["slow: needs a real model download", "live: needs network and API keys"]
+markers = ["slow: needs a real model download", "live: needs network and API keys", "pg: needs Postgres at DATABASE_URL (skipped otherwise)"]
 addopts = "-m 'not slow and not live'"
 pythonpath = ["."]
 

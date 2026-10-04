@@ -47,6 +47,15 @@ watches(id TEXT PRIMARY KEY, name TEXT, positive TEXT, negative TEXT, created IN
 
 The embedding text for an email is `f"{subject}\n{from_name}\n{body[:2000]}"`.
 
+## Tiger Data / Postgres (owned by `tiger`, `atlas/db/`)
+
+Optional. `ATLAS_DB=pg|sqlite` (default pg when `DATABASE_URL` is set). Schema in `atlas/db/schema.sql`:
+`emails` (+ `raw_path`, GIN `tsv`), `email_vectors(email_id, encoder, dim, embedding vector(768))` with HNSW,
+`chunks` / `chunk_vectors` (email or note spans), `chat_sessions`, `chat_messages`, `watches`, `events`,
+`query_log` (hypertable). `atlas.db.backend.get_backend()` exposes `upsert_emails, upsert_vectors, knn, fts,
+get_email, vectors_matrix, append_message, history`. `Engine.get_email / fts / email_meta` route through it.
+Migration: `uv run python -m atlas.db.migrate`. Details in `docs/TIGER.md`.
+
 ## Encoders (owned by `training`, file `atlas/model/encoder.py`)
 
 ```python
@@ -99,7 +108,8 @@ Every caller (web chat, voice agent, iMessage) uses the same tool list:
 | `add_watch` | `name positive[] negative[]` | `{id}`. Standing region; new mail inside it triggers a text |
 | `list_watches` | | `[{id, name}]` |
 
-Python entry point: `atlas.agent.grok.ask(text, channel, history=None) -> {reply, hits, region}`.
+Python entry point: `atlas.agent.grok.ask(text, channel, history=None, session_id=None, user_handle=None, persist=True) -> {reply, hits, region, session_id}`.
+Each turn is saved through the storage backend (see Tiger Data below); `session_id` loads history when `history` is None.
 `channel` is `web`, `voice` or `imessage` (iMessage replies are short plain text, no markdown).
 `atlas.agent.tools` also exports `TOOL_SCHEMAS` (OpenAI function format) and `run_tool(name, args)`
 for the voice agent, plus `delete_watch(id_or_name)`. `atlas.agent.grok.check_watches(new_ids)`
@@ -111,7 +121,7 @@ The web UI exposes `window.atlas = {search(q), ask(text), applyResult(res), setQ
 
 | Route | Owner | Body / Response |
 |---|---|---|
-| `POST /api/ask` | search-agent | `{text, channel, history?}` -> `{reply, hits, region}` |
+| `POST /api/ask` | search-agent | `{text, channel, history?, session_id?, user_handle?}` -> `{reply, hits, region, session_id}` |
 | `POST /api/search` | search-agent | `{query, mode: keyword/embed/region, k}` -> `{hits, region, facets}` |
 | `GET /api/related?topic=` | search-agent | `is_related` output |
 | `GET /api/map` | search-agent | `map.json` |
