@@ -19,6 +19,7 @@ Navigate your inbox by meaning instead of by string. A question becomes a **regi
 
 ## Contents
 - [Abstract](#abstract)
+- [Context for agents](#context-for-agents)
 - [Installation](#installation)
 - [Method](#method)
   - [System](#system)
@@ -46,6 +47,14 @@ Email search is string matching. Search "coding competition" and Gmail returns t
 Inbox Atlas treats a query as a region. Grok expands the question into positive facets written in the vocabulary emails actually use (platform names, event names, senders) plus explicit negatives ("job coding interview"). The facets are embedded by **atlas-embed**, a frozen `bge-base-en-v1.5` backbone with LoRA adapters trained on email with Matryoshka dims and listwise distillation from a frozen cross-encoder teacher. **atlas-region**, a Set Transformer, reads the facet set and emits a region: four anchors, per-anchor temperatures and a boundary, calibrated so that `P(member)` is a real probability. Hub-corrected z-scores turn "is this topic related to my inbox?" into a yes/no with a confidence instead of a raw cosine.
 
 On the demo inbox, region search puts 7 of the top 8 results on topic for "coding competition" against 6 of 8 for plain cosine and 0 of 8 for BM25, and the yes/no relatedness check is correct on 20 of 20 present and absent topics. The encoder and region model train on 224,867 deduplicated Enron emails with 426 folder topics, 63 of them held out entirely, plus 19,980 Grok-labeled emails, on one RTX 4070 SUPER. The same tools are exposed to a Grok chat agent, a realtime Grok voice agent, a Whisperflow-style dictation tool, and an iMessage agent you can text ("what do I have today?") that also texts you when new mail lands in a region you are watching.
+
+## Context for agents
+
+LLM agents (Claude Code, Hermes, OpenClaw, an Obsidian second brain) either paste whole documents into context or grep and open file after file. Inbox Atlas hands them the minimal context instead: `atlas_context(question, budget_tokens)` returns the region, the few emails or vault notes inside it, and only the sentences that answer the question, packed under a token budget, or a calibrated "nothing here" so the agent stops searching. It covers Gmail and an Obsidian vault (notes chunked by heading, embedded locally, never sent to Grok at ingest) and ships as an MCP server (`mcp/server.py`, stdio and streamable HTTP) and as `POST /api/context`. Setup for each agent: [docs/mcp.md](docs/mcp.md).
+
+<img src="assets/token_efficiency.png" width="860" alt="Answer accuracy vs context tokens per strategy, and tokens spent on absent topics" />
+
+Measured on 24 questions over the demo inbox plus a synthetic vault ([eval/token_results.md](eval/token_results.md)): the 800 token pack averages **249 tokens at 75% accuracy**, the same accuracy as top-8 embedding chunks at 740 tokens (3x fewer) and above grep-style top-10 documents (67% at 4,445 tokens, 18x fewer). Whole-document RAG (top-10 by embedding) is more accurate, 92%, at 4,270 tokens: the pack loses 17 points there, mostly on broad multi-item topics like "travel plans", and misses one vault fact whose note section is too diluted to clear the related? threshold. On 14 absent topics the pack spends 31 tokens and abstains on 13, where the baselines hand over 740 to 4,000 tokens of unrelated text. On the user's real 419 note vault (tokens only, nothing sent to Grok) the 800 token pack contains the target note for 12 of 12 title-derived questions at 625 tokens, against 7,400 for top-10 notes.
 
 ## Installation
 

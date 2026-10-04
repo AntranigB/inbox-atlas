@@ -32,16 +32,25 @@ def filter_mask(eng: Engine, filters: dict | None) -> np.ndarray:
     if not f:
         return mask
     after, before, frm = _ts(f.get("after")), _ts(f.get("before"), end=True), f.get("from")
+    srcs = f.get("sources") or f.get("source")
+    srcs = {srcs} if isinstance(srcs, str) else set(srcs or [])
     meta = eng.email_meta()
     for i, eid in enumerate(ids):
-        date, addr, name = meta.get(eid, (None, "", ""))
-        if after and (date or 0) < after:
+        date, addr, name, src = meta.get(eid, (None, "", "", None))
+        if srcs and source_kind(src) not in srcs:
+            mask[i] = False
+        elif after and (date or 0) < after:
             mask[i] = False
         elif before and (date or 0) >= before:
             mask[i] = False
         elif frm and frm.lower() not in f"{addr or ''} {name or ''}".lower():
             mask[i] = False
     return mask
+
+
+def source_kind(src) -> str:
+    """'obsidian' for vault notes, 'gmail' for every mail source (gmail, imap, fixture)."""
+    return "obsidian" if src == "obsidian" else "gmail"
 
 
 def rrf(rank_lists, k=RRF_K):
@@ -55,7 +64,8 @@ def rrf(rank_lists, k=RRF_K):
 def _hit(eng, eid, **extra):
     r = eng.get_email(eid) or {}
     h = {"id": eid, "from": r.get("from_name") or r.get("from_addr"), "from_addr": r.get("from_addr"),
-         "date": r.get("date"), "subject": r.get("subject"), "snippet": (r.get("snippet") or (r.get("body") or "")[:200])}
+         "date": r.get("date"), "subject": r.get("subject"), "snippet": (r.get("snippet") or (r.get("body") or "")[:200]),
+         "source": source_kind(r.get("source"))}
     h.update({k: v for k, v in extra.items() if v is not None})
     return h
 

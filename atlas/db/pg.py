@@ -169,8 +169,8 @@ class PgStore:
         return self.fetchone("select count(*) from emails")[0]
 
     def email_meta(self):
-        """id -> (date, from_addr, from_name), for date and sender filters."""
-        return {r[0]: (r[1], r[2], r[3]) for r in self.fetchall("select id, date, from_addr, from_name from emails")}
+        """id -> (date, from_addr, from_name, source), for date, sender and source filters."""
+        return {r[0]: (r[1], r[2], r[3], r[4]) for r in self.fetchall("select id, date, from_addr, from_name, source from emails")}
 
     def fts(self, query, k=50):
         """OR over alphanumeric tokens like the SQLite fts_search, ranked by ts_rank_cd."""

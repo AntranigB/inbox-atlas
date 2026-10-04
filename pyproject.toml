@@ -19,6 +19,8 @@ dependencies = [
   "tzdata",
   "psycopg[binary]>=3.3.6",
   "pgvector>=0.5.0",
+  "tiktoken>=0.14.0",
+  "mcp>=2.3.0",
 ]
 
 [project.scripts]
@@ -31,7 +33,9 @@ build-backend = "setuptools.build_meta"
 [project.optional-dependencies]
 train = ["torch>=2.4", "peft>=0.12", "transformers>=4.44", "datasets>=2.20", "accelerate>=0.33", "tqdm", "pandas", "pyarrow"]
 dictate = ["sounddevice>=0.4", "pynput>=1.7", "pyperclip>=1.9", "soundfile>=0.12"]
-figures = ["matplotlib>=3.8"]
+figures = [
+    "matplotlib>=3.8",
+]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "respx>=0.21"]
 
 [tool.pytest.ini_options]

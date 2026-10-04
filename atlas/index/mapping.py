@@ -128,6 +128,7 @@ def build_map(conn, ids, E, grok=False, verbose=False):
         lo, hi = xy.min(0), xy.max(0)
         xy = (xy - lo) / np.maximum(hi - lo, 1e-9)  # normalize to [0, 1]
     subj = {r[0]: (r[1] or "") for r in conn.execute("select id, subject from emails")}
+    private = {r[0] for r in conn.execute("select id from emails where source='obsidian'")}
     by_cluster = {}
     for i, c in zip(ids, lab):
         if c >= 0:
@@ -136,7 +137,13 @@ def build_map(conn, ids, E, grok=False, verbose=False):
     if grok and config.XAI_API_KEY and by_cluster:
         if verbose:
             print(f"  labeling {len(by_cluster)} clusters with Grok")
-        labels = grok_labels(by_cluster, labels)
+        # vault notes stay local: only email subjects are ever sent to Grok for labels
+        public = {}
+        for i, c in zip(ids, lab):
+            if c >= 0 and i not in private:
+                public.setdefault(int(c), []).append(subj.get(i, ""))
+        if public:
+            labels = {**labels, **grok_labels(public, labels)}
     points = [{"id": i, "x": round(float(p[0]), 4), "y": round(float(p[1]), 4), "cluster": int(c)}
               for i, p, c in zip(ids, xy, lab)]
     clusters = sorted(({"id": k, "label": labels.get(k, "misc"), "size": len(v)} for k, v in by_cluster.items()),

@@ -69,7 +69,7 @@ class SqliteBackend:
         return self.conn.execute("select count(*) from emails").fetchone()[0]
 
     def email_meta(self):
-        return {r[0]: (r[1], r[2], r[3]) for r in self.conn.execute("select id, date, from_addr, from_name from emails")}
+        return {r[0]: (r[1], r[2], r[3], r[4]) for r in self.conn.execute("select id, date, from_addr, from_name, source from emails")}
 
     def fts(self, query, k=50):
         return store.fts_search(self.conn, query, k)
@@ -95,7 +95,7 @@ class SqliteBackend:
 
             meta, after, before, frm = self.email_meta(), _ts(f.get("after")), _ts(f.get("before"), end=True), f.get("from")
             for i, eid in enumerate(ids):
-                date, addr, name = meta.get(eid, (None, "", ""))
+                date, addr, name = meta.get(eid, (None, "", "", None))[:3]
                 if (after and (date or 0) < after) or (before and (date or 0) >= before) or \
                         (frm and frm.lower() not in f"{addr or ''} {name or ''}".lower()):
                     cos[i] = -np.inf
