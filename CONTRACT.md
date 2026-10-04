@@ -101,6 +101,11 @@ Every caller (web chat, voice agent, iMessage) uses the same tool list:
 
 Python entry point: `atlas.agent.grok.ask(text, channel, history=None) -> {reply, hits, region}`.
 `channel` is `web`, `voice` or `imessage` (iMessage replies are short plain text, no markdown).
+`atlas.agent.tools` also exports `TOOL_SCHEMAS` (OpenAI function format) and `run_tool(name, args)`
+for the voice agent, plus `delete_watch(id_or_name)`. `atlas.agent.grok.check_watches(new_ids)`
+returns a list of dicts `{watch_name, watch, id, from, subject, date, snippet, z}`.
+The web UI exposes `window.atlas = {search(q), ask(text), applyResult(res), setQuery(q)}` and fires a
+`atlas:result` DOM event, so voice.js can drive the search box and map.
 
 ## HTTP API (FastAPI app in `server.py`, routers in `atlas/api/`)
 
@@ -111,7 +116,9 @@ Python entry point: `atlas.agent.grok.ask(text, channel, history=None) -> {reply
 | `GET /api/related?topic=` | search-agent | `is_related` output |
 | `GET /api/map` | search-agent | `map.json` |
 | `GET /api/agenda?date=` | search-agent | `todays_agenda` output |
-| `GET/POST /api/watches` | search-agent | |
+| `GET/POST /api/watches` | search-agent | `DELETE /api/watches/{id_or_name}` removes one |
+| `GET /api/email/{id}` | search-agent | full email row (UI expands a result) |
+| `GET /api/encoders` | search-agent | `{default, available[]}` index dirs, drives the Base / Tuned toggle |
 | `POST /api/stt` | voice | multipart `audio` -> `{text}` (raw Grok STT) |
 | `POST /api/dictate` | voice | multipart `audio` -> `{raw, text}` (STT + Grok cleanup) |
 | `WS /ws/voice` | voice | proxy to Grok realtime, with tools executed server side |

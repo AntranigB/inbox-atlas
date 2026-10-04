@@ -1,0 +1,42 @@
+{
+  "queries": [
+    "coding competition",
+    "money I owe someone",
+    "anything about housing next year",
+    "travel plans",
+    "upcoming exams",
+    "internship hunting",
+    "stuff I bought online",
+    "workout schedule",
+    "catching up with my parents",
+    "my research lab work",
+    "tech news digest",
+    "winter break trip"
+  ],
+  "related": {
+    "present": [
+      "programming contests",
+      "paying back a friend",
+      "where I will live next year",
+      "flights",
+      "midterm exam",
+      "software engineering internship",
+      "package delivery",
+      "spin class",
+      "lab meeting",
+      "weekly newsletter"
+    ],
+    "absent": [
+      "yacht maintenance",
+      "wedding planning",
+      "pet vet appointment",
+      "jury duty summons",
+      "mortgage refinancing",
+      "knitting patterns",
+      "car insurance claim",
+      "baby shower gifts",
+      "golf tee times",
+      "skydiving lessons"
+    ]
+  }
+}
