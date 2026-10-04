@@ -21,8 +21,8 @@ Open four windows:
    With real Photon keys (SPECTRUM_PROJECT_ID, SPECTRUM_PROJECT_SECRET, OWNER_PHONE in .env),
    `uv run atlas up` starts the real iMessage sidecar instead; text the Photon line once first.
 3. **Terminal B, agent:** Cursor CLI in the repo, with the project MCP server approved once:
-   `cursor-agent mcp list` (approve `inbox-atlas` if it says pending), then `cursor-agent`.
-   Claude Code works the same way (`claude`, approve the project MCP server).
+   `cursor-agent mcp list` should show `inbox-atlas: ready` (it is in ~/.cursor/mcp.json), then `cursor-agent`.
+   Claude Code works the same way (`claude`; added with `claude mcp add --scope user`).
 4. **Phone (optional):** the Cloudflare link from `grep trycloudflare data/logs/cloudflared.log`,
    same password. If cloudflared stopped: `cloudflared tunnel --url http://localhost:8765`.
 
