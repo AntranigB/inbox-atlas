@@ -168,6 +168,53 @@ Stage A without teacher on the first parse (before the folder-label cleanup), va
 1500 steps: subject -> body 0.444 -> 0.519, folder topics 0.140 -> 0.156. Stopped at step 2100
 to free the GPU for the teacher; it validated the pipeline end to end (adapter, merge, loader).
 
-### Main run (a2 + b2), ablations
+### Main run: atlas-embed (a2), `runs/eval2`
 
-Pending: `runs/eval2/metrics.md`, `runs/eval3/metrics.md`, `runs/eval-abl/metrics.md`.
+a2: 1 epoch, 6,148 steps, 89 min, InfoNCE + Matryoshka + teacher KD, anchors = folder topics
+13.9k, subject 60k, reply 30k, Grok topic 32.6k, Grok query 28.5k; teacher scores on 30.3k
+queries. Val score (mean nDCG@10 of folder topics and subject) 0.290 -> 0.339; best checkpoint
+saved at the last eval.
+
+| task (nDCG@10) | BM25 | base bge | atlas-embed 768 | 256 | 64 |
+|---|---|---|---|---|---|
+| topic, seen folders, train emails | 0.121 | 0.120 | **0.135** | 0.122 | 0.072 |
+| topic, seen folders, held-out threads | 0.085 | **0.087** | 0.086 | 0.075 | 0.054 |
+| topic, held-out folders | 0.267 | **0.310** | 0.258 | 0.242 | 0.141 |
+| subject -> body, held-out threads | 0.388 | 0.342 | **0.408** | 0.381 | 0.271 |
+| Grok specific query -> email | **0.753** | 0.593 | 0.706 | 0.649 | 0.422 |
+| Grok vague query -> email | 0.652 | 0.635 | **0.692** | 0.659 | 0.467 |
+
+(Recall@10 moves the same way; full tables in `runs/eval2/metrics.md`.)
+
+What this says, honestly:
+- On unseen emails, atlas-embed beats base bge on subject -> body (+0.066 nDCG@10) and on Grok
+  queries (+0.113 specific, +0.057 vague) and is the best system on vague queries, beating BM25.
+  On specific queries BM25 still wins (they share the email's words by construction).
+- On folder-name queries it does NOT generalize: no gain on seen folders over held-out threads,
+  and it is worse than base bge on held-out folders (0.258 vs 0.310). Folder names are short,
+  noisy codes; training on them seems to fit the training folders rather than teach "topic name
+  -> email" in general. The Grok topic phrases are the better topic supervision.
+- Matryoshka: 256 dims keeps most of the gain (still beats base 768 on subject and both Grok
+  query tasks), 64 dims loses a lot. Base bge was not trained for truncation, so its 256/64
+  numbers would be lower still (not measured yet).
+
+Region membership on held-out folders (positives = folder name + Grok phrases of 3 seed emails,
+seeds excluded from scoring; negatives = 2 nearest train folder names):
+
+| encoder / region | AUROC | nDCG@10 | ECE all | ECE top 200 | Brier |
+|---|---|---|---|---|---|
+| base bge / heuristic | 0.819 | **0.261** | 0.0012 | 0.065 | 0.00279 |
+| atlas-embed / heuristic | **0.843** | 0.249 | 0.0014 | 0.055 | **0.00275** |
+| atlas-embed / learned v1 (4 anchors only) | 0.781 | 0.122 | 0.0025 | **0.044** | 0.00280 |
+
+- The trained encoder makes the heuristic region better at separating members (AUROC +0.024).
+- The first learned region (anchors only) is better calibrated at the top of the ranking but
+  ranks worse than the heuristic. Diagnosis: with only 4 anchors it cannot express "close to ANY
+  one of these phrases", which the heuristic's max-facet term does. v2 adds the input phrases as
+  extra anchors (shared learned temperature) plus a learned gate for the negative phrases, so the
+  heuristic is a special case of the model. Results below when `runs/eval3` lands.
+
+### v2 region and ablations
+
+Pending: `runs/eval3/metrics.md` (region v2 + region ablations), `runs/eval-abl/metrics.md`
+(student ablations at half an epoch).
