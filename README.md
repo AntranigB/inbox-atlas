@@ -20,6 +20,7 @@ Token-efficient retrieval for LLM agents over your email and your second brain. 
 ## Contents
 - [Abstract](#abstract)
 - [Context for agents](#context-for-agents)
+  - [Navigating nested markdown](#navigating-nested-markdown)
 - [Installation](#installation)
 - [Method](#method)
   - [System](#system)
@@ -55,6 +56,26 @@ LLM agents (Claude Code, Hermes, OpenClaw, an Obsidian second brain) either past
 <img src="assets/token_efficiency.png" width="860" alt="Answer accuracy vs context tokens per strategy, and tokens spent on absent topics" />
 
 Measured on 24 questions over the demo inbox plus a synthetic vault ([eval/token_results.md](eval/token_results.md)): the 800 token pack averages **249 tokens at 75% accuracy**, the same accuracy as top-8 embedding chunks at 740 tokens (3x fewer) and above grep-style top-10 documents (67% at 4,445 tokens, 18x fewer). Whole-document RAG (top-10 by embedding) is more accurate, 92%, at 4,270 tokens: the pack loses 17 points there, mostly on broad multi-item topics like "travel plans", and misses one vault fact whose note section is too diluted to clear the related? threshold. On 14 absent topics the pack spends 31 tokens and abstains on 13, where the baselines hand over 740 to 4,000 tokens of unrelated text. On the user's real 419 note vault (tokens only, nothing sent to Grok) the 800 token pack contains the target note for 12 of 12 title-derived questions at 625 tokens, against 7,400 for top-10 notes.
+
+### Navigating nested markdown
+
+Second brains and agent workspaces (Obsidian vaults, Hermes and OpenClaw memory folders) are deep trees of markdown. Instead of querying every note, `atlas_points_of_interest(question, within=None)` embeds the tree: each folder gets the normalized mean of the section vectors under it (plus a version weighted toward its own notes), the question is scored with the same facets and hub-corrected region, and the section scores are aggregated up the tree, so a folder full of hits beats the parent that dilutes it. The agent gets the few folders the question lives in, their best notes and one excerpt each, or a 23 token "not here". `within="projects/"` drills into a subtree (folder, then subfolder, then `atlas_get` on the note), and `atlas_related_folders(path)` returns the nearest folders outside the folder's own lineage with the tags and wikilinks they share. Same over HTTP: `POST /api/context/folders`, `GET /api/context/related_folders?path=`.
+
+On the synthetic vault (fictional notes, `base` encoder), "what pulse widths did I use for the arm servos?" returns 210 tokens:
+
+```
+1. projects/robotics/arm/ (2/2 notes, score 11.3 #robotics #arm #servo)
+   - projects/robotics/arm/Servo calibration.md#pulse-widths (z 12.1)
+   - projects/robotics/arm/Gripper.md#grip-force (z 7.9)
+   > Elbow servo: 610 to 2380 microseconds. Wrist servo: 500 to 2450 microseconds.
+2. projects/robotics/ (3/3 notes, score 10.8 #robotics #arm #rover)
+   - projects/robotics/arm/Servo calibration.md#pulse-widths (z 12.1)
+   - projects/robotics/arm/Gripper.md#grip-force (z 7.9)
+   - projects/robotics/Rover.md#wiring-notes (z 6.4)
+   > Every joint of the arm uses a hobby servo, and no two servos map pulse width to angle the same way.
+```
+
+Details: [docs/mcp.md](docs/mcp.md#navigating-a-nested-vault-by-folder).
 
 ## Installation
 

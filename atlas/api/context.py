@@ -1,11 +1,13 @@
-"""POST /api/context: the same token-budgeted context pack the MCP server returns."""
+"""POST /api/context: the same token-budgeted context pack the MCP server returns.
+
+POST /api/context/folders and GET /api/context/related_folders?path= navigate the vault by folder."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from atlas.context import pack
+from atlas.context import pack, tree
 
 router = APIRouter()
 
@@ -15,6 +17,13 @@ class ContextBody(BaseModel):
     budget_tokens: int = 800
     sources: list[str] | None = None
     k: int = 8
+
+
+class FoldersBody(BaseModel):
+    question: str
+    k_folders: int = 5
+    k_notes: int = 3
+    within: str | None = None
 
 
 class GetBody(BaseModel):
@@ -31,3 +40,14 @@ def api_context(b: ContextBody):
 @router.post("/api/context/get")
 def api_context_get(b: GetBody):
     return pack.get_doc(b.uri, max_tokens=b.max_tokens)
+
+
+@router.post("/api/context/folders")
+def api_context_folders(b: FoldersBody):
+    p = tree.points_of_interest(b.question, k_folders=b.k_folders, k_notes=b.k_notes, within=b.within)
+    return pack.json.loads(pack.dumps(p))
+
+
+@router.get("/api/context/related_folders")
+def api_related_folders(path: str, k: int = 5):
+    return pack.json.loads(pack.dumps(tree.related_folders(path, k=k)))

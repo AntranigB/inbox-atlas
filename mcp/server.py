@@ -8,6 +8,8 @@ Tools:
   atlas_search(query, k, sources)                   ranked hits with one-line snippets
   atlas_related(topic, sources)                     yes/no: is this topic in the data at all?
   atlas_get(uri, max_tokens)                        one email, note section or whole note, capped
+  atlas_points_of_interest(question, within)        which vault folders and notes a question lives in
+  atlas_related_folders(path, k)                    folders near a folder, with shared tags and links
 
 See docs/mcp.md for registering it with Claude Code, Hermes Agent and OpenClaw.
 """
@@ -28,13 +30,14 @@ try:  # mcp >= 2
 except ImportError:  # mcp 1.x
     from mcp.server.fastmcp import FastMCP as _Server
 
-from atlas.context import pack  # noqa: E402
+from atlas.context import pack, tree  # noqa: E402
 
 INSTRUCTIONS = (
     "Inbox Atlas searches the user's email and Obsidian notes by meaning. Call atlas_context first: it returns "
     "only the sentences that answer the question, under a token budget. If it returns answerable=false, the "
     "topic is not in the data: stop searching instead of grepping more files. Use atlas_get(uri) only when an "
-    "excerpt is not enough.")
+    "excerpt is not enough. For a large or nested vault, atlas_points_of_interest(question) first shows which "
+    "folders and notes the question lives in; pass within=<folder> to drill down, then atlas_get the note.")
 
 server = _Server("inbox-atlas", instructions=INSTRUCTIONS)
 
@@ -97,6 +100,26 @@ def atlas_related(topic: str, sources: list[str] | None = None) -> dict:
 def atlas_get(uri: str, max_tokens: int = 1500) -> dict:
     """Full text of one item by uri: gmail:<id>, <note path>#<heading anchor>, or <note path> for a whole note."""
     return pack.get_doc(uri, max_tokens=int(max_tokens))
+
+
+@server.tool()
+def atlas_points_of_interest(question: str, k_folders: int = 5, k_notes: int = 3, within: str | None = None) -> dict:
+    """Which folders and notes of the Obsidian vault a question lives in, before reading any note.
+
+    Returns related (is it in the vault at all), ranked folders (path, hit notes / notes, score, top tags,
+    best note uris, one excerpt), a compact context string and its token count. within=<folder path>
+    restricts to that subtree so you can go folder, then subfolder, then note. related=false: stop."""
+    p = tree.points_of_interest(question, k_folders=int(k_folders), k_notes=int(k_notes), within=within)
+    keep = ("path", "n_notes", "hit_notes", "score", "last_modified", "top_tags", "notes", "title", "excerpt")
+    return {k: p.get(k) for k in ("related", "confidence", "within", "reason", "context", "tokens")} | {
+        "folders": [{k: f.get(k) for k in keep} for f in p["folders"]]}
+
+
+@server.tool()
+def atlas_related_folders(path: str, k: int = 5) -> dict:
+    """Vault folders closest to `path` by meaning (ancestors and descendants excluded), with the cosine and
+    the tags and wikilinks they share."""
+    return tree.related_folders(path, k=int(k))
 
 
 def main(argv=None):
