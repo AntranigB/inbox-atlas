@@ -1,0 +1,34 @@
+[project]
+name = "inbox-atlas"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "python-multipart>=0.0.9",
+  "httpx>=0.27",
+  "websockets>=13",
+  "numpy>=1.26",
+  "python-dotenv>=1.0",
+  "beautifulsoup4>=4.12",
+  "sentence-transformers>=3.0",
+  "umap-learn>=0.5",
+  "hdbscan>=0.8",
+  "icalendar>=6.0",
+  "recurring-ical-events>=3.0",
+  "tzdata",
+]
+
+[project.optional-dependencies]
+train = ["torch>=2.4", "peft>=0.12", "transformers>=4.44", "datasets>=2.20", "accelerate>=0.33", "tqdm", "pandas", "pyarrow"]
+dictate = ["sounddevice>=0.4", "pynput>=1.7", "pyperclip>=1.9", "soundfile>=0.12"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "respx>=0.21"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: needs a real model download", "live: needs network and API keys"]
+addopts = "-m 'not slow and not live'"
+pythonpath = ["."]
+
+[tool.setuptools.packages.find]
+include = ["atlas*"]
