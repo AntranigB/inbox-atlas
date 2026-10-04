@@ -300,36 +300,38 @@ def fig_architecture():
 
 # Numbers below are copied from eval/token_results.md and eval/results.md (measured runs).
 SAVINGS = [
-    ("Meaning-based queries with zero relevant hits", "of 12 queries, lower is better", 7, 0, "{:.0f}", "{:.0f}", "7 to 0"),
-    ("Recall@10 on meaning-based queries", "higher is better", 0.175, 0.867, "{:.3f}", "{:.3f}", "about 5x"),
-    ("Context tokens per question", "lower is better", 4445, 249, "{:,.0f}", "{:,.0f}", "18x fewer"),
-    ("Tokens spent when the topic is not there", "lower is better", 1858, 31, "{:,.0f}", "{:,.0f}", "60x fewer"),
-    ("Real 419 note vault: tokens handed to the agent", "lower is better", 10907, 625, "{:,.0f}", "{:,.0f}", "17x fewer"),
+    ("Queries with zero relevant hits", "12 meaning-based queries, lower is better", 7, 0, "{:.0f}", "{:.0f}", "7 to 0"),
+    ("Recall@10", "same 12 queries, higher is better", 0.175, 0.867, "{:.3f}", "{:.3f}", "about 5x"),
+    ("Context tokens per question", "top 10 docs vs 800 token pack, lower is better", 4445, 249, "{:,.0f}", "{:,.0f}", "18x fewer"),
+    ("Tokens when the topic is absent", "14 absent topics, lower is better", 1858, 31, "{:,.0f}", "{:,.0f}", "60x fewer"),
+    ("Real 419 note vault", "tokens handed to the agent, lower is better", 10907, 625, "{:,.0f}", "{:,.0f}", "17x fewer"),
 ]
 
 
 def fig_token_savings():
-    fig, axes = plt.subplots(len(SAVINGS), 1, figsize=(9, 7.4))
-    fig.subplots_adjust(hspace=1.05, left=0.2, right=0.84, top=0.88, bottom=0.03)
-    fig.suptitle("Why it saves tokens: keyword search vs Inbox Atlas", fontsize=13, color=INK, x=0.03, ha="left",
-                 weight="bold")
-    fig.text(0.03, 0.925, "Measured on the demo inbox, a synthetic vault and a real 419 note vault", fontsize=9,
-             color=MUTED, ha="left")
-    for ax, (title, sub, a, b, fa, fb, badge) in zip(axes, SAVINGS):
-        top = max(a, b) * 1.18 or 1
-        ax.barh([1, 0], [a, b], color=[GRAY, RED], height=0.72)
-        ax.set_xlim(0, top)
-        ax.set_ylim(-0.6, 1.6)
-        ax.set_yticks([1, 0], ["keyword / grep", "Atlas"], fontsize=9)
-        ax.tick_params(axis="y", length=0)
-        ax.set_xticks([])
-        ax.spines["bottom"].set_visible(False)
-        for y, v, f in ((1, a, fa), (0, b, fb)):
-            ax.text(v + top * 0.012, y, f.format(v), va="center", fontsize=9.5, color=INK,
-                    weight="bold" if y == 0 else "normal")
-        ax.text(0, 1.95, title, transform=ax.get_yaxis_transform(), fontsize=10.5, color=INK, weight="bold")
-        ax.text(1.0, 1.95, sub, transform=ax.get_yaxis_transform(), fontsize=8, color=MUTED, ha="right")
-        ax.text(1.03, 0.5, badge, transform=ax.transAxes, fontsize=11, color=RED, weight="bold", va="center")
+    """One row per metric: label, paired bars (keyword gray, Atlas red), multiplier. Fixed layout, no gaps."""
+    n = len(SAVINGS)
+    fig, ax = plt.subplots(figsize=(11, 0.95 * n + 1.25))
+    ax.set_xlim(0, 100)
+    ax.set_ylim(0, n * 10 + 7)
+    ax.axis("off")
+    ax.text(0, n * 10 + 4.6, "Why it saves tokens: keyword search vs Inbox Atlas", fontsize=13, weight="bold", color=INK)
+    ax.text(0, n * 10 + 1.4, "Measured on the demo inbox, a synthetic vault and a real 419 note vault", fontsize=9,
+            color=MUTED)
+    X0, W = 47, 28  # bar area
+    for i, (title, sub, a_, b_, fa, fb, badge) in enumerate(SAVINGS):
+        y = (n - 1 - i) * 10
+        if i:
+            ax.plot([0, 100], [y + 10, y + 10], color="#d8dee4", lw=0.8)
+        ax.text(0, y + 6.2, title, fontsize=10, weight="bold", color=INK, va="center")
+        ax.text(0, y + 3.0, sub, fontsize=8, color=MUTED, va="center")
+        top = max(a_, b_) or 1
+        for yy, v, f, c, wt in ((y + 6.3, a_, fa, GRAY, "normal"), (y + 2.7, b_, fb, RED, "bold")):
+            ax.add_patch(plt.Rectangle((X0, yy - 1.4), max(W * v / top, 0.25), 2.8, color=c, lw=0))
+            ax.text(X0 + W * v / top + 0.8, yy, f.format(v), va="center", fontsize=9, color=INK, weight=wt)
+        ax.text(X0 - 1, y + 6.3, "keyword", fontsize=8, color=MUTED, va="center", ha="right")
+        ax.text(X0 - 1, y + 2.7, "Atlas", fontsize=8, color=RED, va="center", ha="right", weight="bold")
+        ax.text(100, y + 4.5, badge, fontsize=13, weight="bold", color=RED, va="center", ha="right")
     save(fig, "token_savings.png")
 
 

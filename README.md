@@ -55,7 +55,7 @@ LLM agents (Claude Code, Hermes, OpenClaw, an Obsidian second brain) either past
 
 <img src="assets/token_efficiency.png" width="860" alt="Answer accuracy vs context tokens per strategy, and tokens spent on absent topics" />
 
-<p align="center"><img src="assets/token_savings.png" width="760" alt="Keyword search vs Inbox Atlas: zero-hit queries, recall, context tokens, tokens on absent topics, and tokens on a real vault" /></p>
+<p align="center"><img src="assets/token_savings.png" width="900" alt="Keyword search vs Inbox Atlas: zero-hit queries, recall, context tokens, tokens on absent topics, and tokens on a real vault" /></p>
 
 **Why it saves tokens.** An agent that searches by word matching has to guess the words the email used. When the email says "Codeforces Round 1043" and the question says "coding competition", grep finds nothing, so the agent rewrites the query, greps again and opens file after file. Atlas searches by meaning, so the first call lands inside the region, and it returns only the sentences that answer the question.
 
