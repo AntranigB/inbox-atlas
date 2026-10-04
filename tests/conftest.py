@@ -6,6 +6,14 @@ LOCAL_ENV = ("ATLAS_TOKEN", "SPECTRUM_PROJECT_ID", "SPECTRUM_PROJECT_SECRET", "O
 
 
 @pytest.fixture(autouse=True)
+def _isolated_engine_cache(monkeypatch):
+    """Query logging can initialize an engine; don't reuse another test's database."""
+    from atlas.search import engine
+
+    monkeypatch.setattr(engine, "_engines", {})
+
+
+@pytest.fixture(autouse=True)
 def _sqlite_unless_pg(request, monkeypatch):
     """Tests run on SQLite even when .env sets DATABASE_URL, except the ones marked pg."""
     if request.node.get_closest_marker("pg") is None:
