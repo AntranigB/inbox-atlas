@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "inbox-atlas": {
+      "command": "uv",
+      "args": ["run", "--directory", ".", "python", "mcp/server.py"]
+    }
+  }
+}
