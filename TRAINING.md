@@ -214,7 +214,41 @@ seeds excluded from scoring; negatives = 2 nearest train folder names):
   extra anchors (shared learned temperature) plus a learned gate for the negative phrases, so the
   heuristic is a special case of the model. Results below when `runs/eval3` lands.
 
-### v2 region and ablations
+### v2 region and region ablations, `runs/eval3`
 
-Pending: `runs/eval3/metrics.md` (region v2 + region ablations), `runs/eval-abl/metrics.md`
-(student ablations at half an epoch).
+v2 (phrases as extra anchors + negative gate) adds model selection on region-val topics: 10% of
+the training topics are never used for region training and are scored on val emails every 250
+steps; step 0 (the initialization) is a candidate.
+
+| encoder / region | AUROC | nDCG@10 | ECE top 200 | Brier |
+|---|---|---|---|---|
+| base bge / heuristic | 0.819 | **0.261** | 0.065 | 0.00279 |
+| atlas-embed / heuristic | **0.843** | 0.249 | 0.055 | 0.00275 |
+| atlas-embed / learned v2 (`region.pt`) | 0.841 | 0.242 | **0.046** | 0.00275 |
+| v2, lr 3e-5 / no teacher KD / no negative phrases / PU negatives | 0.841 | 0.242 | 0.045 to 0.046 | 0.00275 |
+| atlas-embed / learned v1 (anchors only, trained 4k steps) | 0.781 | 0.122 | 0.044 | 0.00280 |
+
+The negative result, stated plainly: on held-out topics, every region-training run got worse than
+its own initialization (region-val AUROC 0.918 at step 0, 0.86 to 0.89 after 250+ steps, with
+lr 3e-4 or 3e-5, with or without teacher KD, negative phrases, or positive-unlabeled negatives),
+so selection always kept step 0. With only ~680 training topic sets and partial labels (most
+on-topic emails carry no folder or Grok label, so they are trained as negatives), the Set
+Transformer fits the training topics instead of learning a transferable rule. What `region.pt`
+adds over the heuristic today is calibration: a fitted temperature and offset give a usable
+P(member) (ECE over the top 200 per topic 0.046 vs 0.055 for a Platt-scaled heuristic) at the same
+ranking quality (AUROC 0.841 vs 0.843). The ablation rows are identical because they all
+selected the same initialization. More topics (Grok-label all of Enron, personal Gmail labels)
+and a ranking loss are the next things to try.
+
+### Student ablations
+
+Pending: `runs/eval-abl/metrics.md` (abl-full, no distill, no negatives, no Matryoshka; 0.35
+epoch each, about 30 min each, started 04:35).
+
+### Efficiency notes
+
+Stage A, the teacher and embedding passes keep the GPU at 90 to 100%. Stage B (the region model
+is 1.5M params on cached embeddings) and eval are CPU bound Python (set sampling, BM25, label
+loops), so the GPU sits mostly idle during those phases; the batch collate was vectorized after
+this showed up. Running several stage B jobs at once (as during the region sweep) multiplies the
+CPU load.
