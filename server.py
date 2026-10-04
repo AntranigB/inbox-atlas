@@ -12,7 +12,7 @@ from atlas import config
 log = logging.getLogger("atlas")
 app = FastAPI(title="Inbox Atlas")
 
-for name in ("search", "voice", "messaging"):
+for name in ("search", "voice", "messaging", "context"):
     try:
         mod = importlib.import_module(f"atlas.api.{name}")
         app.include_router(mod.router)

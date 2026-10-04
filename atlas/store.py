@@ -90,3 +90,13 @@ def load_fixture(conn, path=None):
     rows = [json.loads(l) for l in open(path)]
     upsert_emails(conn, rows)
     return rows
+
+
+def delete_source(conn, source):
+    """Drop every row from one source (used when re-reading an Obsidian vault)."""
+    conn.execute("delete from emails where source=?", (source,))
+    conn.commit()
+
+
+def thread_rows(conn, thread_id):
+    return [dict(r) for r in conn.execute("select * from emails where thread_id=? order by rowid", (thread_id,))]
