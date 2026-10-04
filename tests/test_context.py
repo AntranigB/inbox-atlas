@@ -126,6 +126,7 @@ def test_mcp_server_tools(eng):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     tools = asyncio.run(mod.server.list_tools())
-    assert {t.name for t in tools} == {"atlas_context", "atlas_search", "atlas_related", "atlas_get"}
+    assert {t.name for t in tools} == {"atlas_context", "atlas_search", "atlas_related", "atlas_get",
+                                         "atlas_points_of_interest", "atlas_related_folders"}
     out = mod.atlas_get("projects/Japan trip.md#flight-details", 200)
     assert "K7QW2P" in out["text"]
