@@ -80,13 +80,13 @@ Always `git pull` before launching anything. Everything runs inside tmux so it s
 |---|---|---|
 | Parse Enron | `uv run python -m train.enron --download` | 2 min (download 450 MB + 28-way parse) |
 | Grok labels | `tmux new -d -s atlas-grok 'uv run python -m train.grok_label --cap 20000 2>&1 \| tee -a runs/grok_enron.log'` | 18 min, network bound, runs alongside GPU work |
-| Mine anchors + negatives | `uv run python -m train.mine --ds enron` | 3 min (embeds 185k train docs with base bge) |
-| Teacher scores | `uv run python -m train.teacher --ds enron` | see log, about 30 to 50 min |
-| Stage A (student LoRA) | `uv run python -m train.stage_a --run a2 --out models/atlas-embed` | about 0.86 s/step, 2.8k steps per epoch = 40 min |
-| Stage B (region) | `uv run python -m train.stage_b --model models/atlas-embed --run b1` | 5 min embed cache + 5 to 10 min train |
+| Mine anchors + negatives | `uv run python -m train.mine --ds enron` | 6 min (embeds 175k train docs with base bge, mines 132k unique queries) |
+| Teacher scores | `uv run python -m train.teacher --ds enron` | 36 min for 491k pairs (bge-reranker-v2-m3, bf16, 140 to 220 pairs/s) |
+| Stage A (student LoRA) | `uv run python -m train.stage_a --run a2 --out models/atlas-embed` | 0.84 s/step at bs 32 x (1 pos + 3 negs), 4.2 GB with gradient checkpointing (without it, bs 32 OOMs on 12 GB); 6.1k steps per epoch with Grok anchors = 86 min |
+| Stage B (region) | `uv run python -m train.stage_b --model models/atlas-embed --run b1` | 5 min embed cache + set prep + 4k steps, about 15 min |
 | Stage C (personal, optional) | `uv run python -m train.build_personal && uv run python -m train.mine --ds personal && uv run python -m train.stage_a --run c1 --ds personal --no-distill --init-adapter models/atlas-embed --out models/atlas-embed-personal --epochs 1` | minutes for a few thousand emails |
 | Transfer eval | `uv run python -m train.eval --ds personal --run eval-personal --models models/atlas-embed` | 1 to 3 min |
-| Eval | `uv run python -m train.eval --run eval1 --models models/atlas-embed` | 5 to 10 min |
+| Eval | `uv run python -m train.eval --run eval1 --models models/atlas-embed` | 7 min per encoder (BM25 + base + each checkpoint) |
 
 The whole Stage A chain is scripted: `train/run_stage_a.sh <run>` (parses, mines, then trains with
 distillation if `teacher.json` exists, otherwise as the no-distill ablation). The full pipeline
@@ -94,7 +94,11 @@ after Grok labels: `train/run_full.sh`.
 
 Ablations (same data, one flag each):
 `--no-distill`, `--no-negs`, `--no-matryoshka` on `train.stage_a`; `--no-neg-phrases`,
-`--no-distill` on `train.stage_b`.
+`--no-distill` on `train.stage_b`. `train/run_ablations.sh` runs them all: the region ablations
+(saved as `models/atlas-embed/region_<name>.pt`, picked up by eval automatically), then the
+student ablations at half an epoch each next to a half-epoch full-recipe reference (`abl-full`),
+then `runs/eval-abl/metrics.md`. Note `--no-distill` on stage A removes the teacher entirely,
+including its false-negative filter.
 
 ## Monitoring
 
@@ -133,4 +137,37 @@ the Matryoshka-truncated encoder (the region model needs the full 768).
 
 ## Results
 
-Filled in from `runs/*/metrics.json` as runs finish.
+Dataset after cleaning: 224,867 deduped Enron emails, 426 folder topics (63 held out), splits
+train 175,353 / val 10,817 / test_thread 20,779 / test_topic 17,918. 19,980 emails Grok-labeled.
+Eval corpus for held-out tasks: 38,697 unseen emails. Recall@10 is hits in the top 10 divided by
+min(relevant, 10).
+
+### Baselines (`runs/eval-base`)
+
+| task (n queries) | BM25 R@10 / nDCG@10 | base bge R@10 / nDCG@10 |
+|---|---|---|
+| topic, seen folders, train emails (254) | 0.135 / 0.121 | 0.131 / 0.120 |
+| topic, seen folders, held-out threads (308) | 0.090 / 0.085 | 0.091 / 0.087 |
+| topic, held-out folders (63) | 0.263 / 0.267 | 0.290 / 0.310 |
+| subject -> body, held-out threads (3000) | 0.490 / 0.388 | 0.438 / 0.342 |
+| Grok specific query -> email (4280) | 0.868 / 0.753 | 0.733 / 0.593 |
+| Grok vague query -> email (4280) | 0.810 / 0.652 | 0.788 / 0.635 |
+
+Heuristic region (PLAN.md 3b) on base bge, held-out folders: AUROC 0.819, nDCG@10 0.261.
+
+Honest notes: folder names are a hard, noisy query set (many are cryptic codes like "esvl" or
+person names), so absolute numbers are low for every system. BM25 beats base bge on the Grok
+"specific" queries because Grok wrote them while reading the email, so they share its words;
+the vague queries are the fairer semantic test. Pooled ECE at the natural ~0.1% base rate is
+near zero for anything that predicts "no" everywhere, so we also report ECE over the top 200
+emails per topic, where membership decisions actually happen.
+
+### First run (a1, superseded)
+
+Stage A without teacher on the first parse (before the folder-label cleanup), val nDCG@10 over
+1500 steps: subject -> body 0.444 -> 0.519, folder topics 0.140 -> 0.156. Stopped at step 2100
+to free the GPU for the teacher; it validated the pipeline end to end (adapter, merge, loader).
+
+### Main run (a2 + b2), ablations
+
+Pending: `runs/eval2/metrics.md`, `runs/eval3/metrics.md`, `runs/eval-abl/metrics.md`.
