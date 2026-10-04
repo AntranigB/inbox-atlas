@@ -1,7 +1,12 @@
 instructions.md
 .env
 data/
-models/
+models/*
+!models/atlas-embed/
+models/atlas-embed/*
+!models/atlas-embed/adapter/
+!models/atlas-embed/atlas.json
+!models/atlas-embed/region.pt
 runs/
 __pycache__/
 *.pyc
