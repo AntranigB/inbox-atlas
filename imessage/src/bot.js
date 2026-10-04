@@ -81,26 +81,33 @@ export class Bot {
   }
 
   // Returns the reply text, or null when the message should be ignored.
-  async handle({ threadId, sender, text }) {
+  // Session id on the Atlas server: one per sender handle, prefixed by platform.
+  sessionFor(sender, platform = 'imessage') {
+    const h = platform === 'imessage' ? normalizeHandle(sender) : String(sender || '');
+    return h ? `${platform}:${h}` : null;
+  }
+
+  async handle({ threadId, sender, text, platform = 'imessage' }) {
     const body = String(text || '').trim();
     if (!body) return null;
     if (!this.allowed(sender)) {
       this.log.warn?.(`[imessage] ignoring message from ${sender} (not OWNER_PHONE; set ALLOW_ANY=1 to allow)`);
       return null;
     }
-    const reply = plain(await this.route(threadId, body));
+    const reply = plain(await this.route(threadId, body, this.sessionFor(sender, platform)));
     return reply || 'I have nothing to say to that.';
   }
 
-  async route(threadId, body) {
+  async route(threadId, body, session = null) {
     const lower = body.toLowerCase().replace(/[.!?]+$/, '').trim();
     try {
       if (lower === 'help' || lower === '?' || lower === 'commands') return HELP;
       if (lower === 'reset') {
         this.history.clear(threadId);
+        if (session) await this.atlas.resetSession(session);
         return 'Okay, fresh start.';
       }
-      if (lower === 'today') return await this.ask(threadId, TODAY_Q, true);
+      if (lower === 'today') return await this.ask(threadId, TODAY_Q, true, session);
       if (lower === 'watches') return await this.listWatches();
       const watch = body.match(/^watch\s+(.+)$/i);
       if (watch) {
@@ -120,7 +127,7 @@ export class Bot {
           ? `Morning brief is on. You will get it at ${r.time || '08:00'} every day.`
           : 'Morning brief is off.';
       }
-      return await this.ask(threadId, body, false);
+      return await this.ask(threadId, body, false, session);
     } catch (err) {
       this.log.error?.('[imessage] error:', err.message);
       return explain(err);
@@ -134,11 +141,11 @@ export class Bot {
     return 'Your watches:\n' + list.map((w) => `- ${w.name}`).join('\n');
   }
 
-  async ask(threadId, text, isToday) {
+  async ask(threadId, text, isToday, session = null) {
     const history = this.history.get(threadId);
     let reply;
     try {
-      const r = await this.atlas.ask(withAgendaHint(text, this.tz), history);
+      const r = await this.atlas.ask(withAgendaHint(text, this.tz), history, session);
       reply = typeof r === 'string' ? r : r?.reply;
     } catch (err) {
       // Agent missing or down: "today" can still be answered from /api/agenda.

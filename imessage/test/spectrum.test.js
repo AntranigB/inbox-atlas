@@ -82,3 +82,25 @@ test('outbound send reuses the remembered space, cold start error is explained',
   assert.equal(r.spaceId, 'dm');
   assert.deepEqual(space.sent, ['hello']);
 });
+
+test('SPECTRUM_PROVIDERS picks providers, telegram needs a token', async () => {
+  const { loadProviders, providerNames } = await import('../src/spectrum.js');
+  assert.deepEqual(providerNames({}), ['imessage']);
+  assert.deepEqual(providerNames({ SPECTRUM_PROVIDERS: 'imessage, WhatsApp,tg' }), ['imessage', 'whatsapp-business', 'telegram']);
+  const fake = (name) => ({ config: (c = {}) => ({ name, ...c }) });
+  const importer = async () => ({ imessage: fake('imessage'), whatsappBusiness: fake('wa'), telegram: fake('tg') });
+  const warns = [];
+  const log = { warn: (m) => warns.push(m), error() {}, log() {} };
+  const a = await loadProviders({ SPECTRUM_PROVIDERS: 'imessage,whatsapp,telegram,bogus' }, log, importer);
+  assert.deepEqual(a.map((p) => p.name), ['imessage', 'whatsapp-business']);
+  assert.equal(warns.length, 2);
+  const b = await loadProviders({ SPECTRUM_PROVIDERS: 'telegram', TELEGRAM_BOT_TOKEN: 't' }, log, importer);
+  assert.equal(b[0].config.botToken, 't');
+});
+
+test('real provider configs build with the installed spectrum-ts', async () => {
+  const { loadProviders } = await import('../src/spectrum.js');
+  const log = { warn() {}, error: (m) => assert.fail(m), log() {} };
+  const a = await loadProviders({ SPECTRUM_PROVIDERS: 'imessage,whatsapp,telegram', TELEGRAM_BOT_TOKEN: '1:abc' }, log);
+  assert.deepEqual(a.map((p) => p.name), ['imessage', 'whatsapp-business', 'telegram']);
+});

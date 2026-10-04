@@ -176,3 +176,37 @@ test('formatAgenda', () => {
   assert.match(s, /Demo day @ PSB/);
   assert.match(formatAgenda({}, 'UTC'), /Nothing/);
 });
+
+test('server side sessions: /api/chat keyed by sender handle, reset clears it', async () => {
+  const calls = [];
+  const bot = makeBot(
+    {
+      'POST /api/chat': (b) => ({ reply: `chat ${b.session_id}`, session_id: b.session_id }),
+      'DELETE /api/chat/sessions/imessage%3A%2B15555550100': () => ({ removed: 1 }),
+    },
+    calls,
+  );
+  const r = await bot.handle({ threadId: 't', sender: '(555) 555-0100', text: 'hi' });
+  assert.equal(r, 'chat imessage:+15555550100');
+  assert.equal(calls[0].body.channel, 'imessage');
+  await bot.handle({ threadId: 't', sender: OWNER, text: 'reset' });
+  assert.equal(calls.at(-1).key, 'DELETE /api/chat/sessions/imessage%3A%2B15555550100');
+  bot.allowAny = true;
+  await bot.handle({ threadId: 'tg', sender: '12345', text: 'yo', platform: 'telegram' });
+  assert.equal(calls.at(-1).body.session_id, 'telegram:12345');
+});
+
+test('token is sent as a bearer header', async () => {
+  const seen = [];
+  const atlas = new AtlasClient(
+    'http://atlas.test',
+    async (url, init) => {
+      seen.push(init.headers);
+      return new Response('{"reply":"ok"}', { status: 200 });
+    },
+    1000,
+    's3cret',
+  );
+  await atlas.ask('hi', [], 'imessage:+1');
+  assert.equal(seen[0].authorization, 'Bearer s3cret');
+});

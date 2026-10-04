@@ -21,7 +21,7 @@ const port = Number(env.SIDECAR_PORT || 8766);
 const owner = env.OWNER_PHONE || '';
 const dataDir = env.ATLAS_DATA || path.join(ROOT, 'data');
 
-const atlas = new AtlasClient(env.ATLAS_URL || 'http://localhost:8765');
+const atlas = new AtlasClient(env.ATLAS_URL || `http://localhost:${env.PORT || 8765}`, globalThis.fetch, 90000, env.ATLAS_TOKEN || '');
 const history = new HistoryStore(path.join(dataDir, mock ? 'imessage_history.mock.json' : 'imessage_history.json'));
 const owners = [owner, ...(env.OWNER_HANDLES || '').split(',')].filter(Boolean);
 const bot = new Bot({
@@ -42,9 +42,10 @@ if (mock) {
   }
   if (!owner) console.warn('[imessage] OWNER_PHONE not set: every inbound message will be ignored (set ALLOW_ANY=1 to answer anyone).');
   transport = new SpectrumTransport({ bot, owner, stateFile: path.join(dataDir, 'imessage_state.json') });
+  transport.onEnd = () => setTimeout(() => process.exit(1), 200);
 }
 
-const server = createServer({ transport, owner });
+const server = createServer({ transport, owner, atlas });
 server.listen(port, '127.0.0.1', async () => {
   console.log(`[imessage] sidecar on http://127.0.0.1:${port} (${transport.mode} mode), Atlas at ${atlas.base}`);
   try {
