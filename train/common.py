@@ -64,16 +64,16 @@ def clean_body(text, max_chars=4000):
     """Strip quoted replies, forward headers and signatures. If the author wrote almost nothing
     above a forward, keep the forwarded content with its header lines removed."""
     text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
-    cut = len(text)
-    for rx in _CUT:
+    cut, fwd = len(text), False
+    for i, rx in enumerate(_CUT):
         m = rx.search(text)
-        if m:
-            cut = min(cut, m.start())
+        if m and m.start() < cut:
+            cut, fwd = m.start(), i in (1, 2)
     head = text[:cut]
     m = _SIG.search(head)
     if m:
         head = head[: m.start()]
-    if len(head.strip()) < 40:
+    if (fwd and len(head.strip()) < 40) or len(head.strip()) < 5:
         rest = text[cut:]
         rest = "\n".join(l for l in rest.split("\n") if not l.lstrip().startswith(">"))
         rest = _HDR.sub("", rest)

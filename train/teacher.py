@@ -20,8 +20,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ds", default="enron")
     ap.add_argument("--model", default="BAAI/bge-reranker-v2-m3")
-    ap.add_argument("--ncand", type=int, default=31)
-    ap.add_argument("--max-subject", type=int, default=20000)
+    ap.add_argument("--ncand", type=int, default=15)
+    ap.add_argument("--max-subject", type=int, default=15000)
+    ap.add_argument("--max-grok", type=int, default=15000)
     ap.add_argument("--max-len", type=int, default=320)
     ap.add_argument("--bs", type=int, default=64)
     a = ap.parse_args()
@@ -47,13 +48,16 @@ def main():
         kinds[x["q"]] = x["kind"]
     qs = list(pos)
     subj = [q for q in qs if kinds[q] == "subject"]
-    rest = [q for q in qs if kinds[q] != "subject"]
+    grok = [q for q in qs if kinds[q].startswith("grok")]
+    rest = [q for q in qs if kinds[q] == "topic"]
     random.Random(0).shuffle(subj)
-    qs = rest + subj[: a.max_subject]
+    random.Random(0).shuffle(grok)
+    qs = rest + subj[: a.max_subject] + grok[: a.max_grok]
     pairs = []
     for q in qs:
         have = done.get(q, {})
-        for c in list(pos[q]) + mined.get(q, [])[: a.ncand]:
+        nc = a.ncand * 3 + 2 if kinds[q] == "topic" else a.ncand  # folder members fill the top ranks of label queries
+        for c in list(pos[q]) + mined.get(q, [])[:nc]:
             if c in emails and c not in have:
                 pairs.append((q, c))
     pairs = list(dict.fromkeys(pairs))

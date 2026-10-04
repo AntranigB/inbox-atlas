@@ -89,7 +89,7 @@ class Data:
                 continue
             if x.get("label") and x["label"] in e.get("topics", []):
                 continue
-            if tpos is not None and c in t and t[c] >= tpos:  # teacher says it is as relevant as the positive
+            if tpos is not None and (c not in t or t[c] >= tpos):  # unscored, or teacher says as relevant as the positive  # teacher says it is as relevant as the positive
                 continue
             out.append(c)
         if len(out) >= n:
@@ -261,7 +261,7 @@ def main():
             sched.step()
             opt.zero_grad(set_to_none=True)
             step += 1
-            lv = float(loss)
+            lv = float(loss.detach())
             ema = lv if ema is None else 0.98 * ema + 0.02 * lv
             if step % 25 == 0:
                 rec = {"step": step, "total": total, "loss": round(lv, 4), "ema": round(ema, 4), "nce": round(float(l_nce), 4),
