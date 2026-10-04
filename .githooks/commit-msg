@@ -1,0 +1,11 @@
+#!/bin/sh
+# Rejects commit messages with AI co-author trailers or em/en dashes. See instructions.md.
+msg="$1"
+if grep -qiE '^co-authored-by:|generated with \[?claude|noreply@anthropic\.com' "$msg"; then
+  echo "commit-msg: co-author or AI attribution lines are not allowed in this repo" >&2
+  exit 1
+fi
+if LC_ALL=en_US.UTF-8 grep -q "$(printf '\342\200\224')\|$(printf '\342\200\223')" "$msg"; then
+  echo "commit-msg: em dashes and en dashes are not allowed in commit messages" >&2
+  exit 1
+fi
