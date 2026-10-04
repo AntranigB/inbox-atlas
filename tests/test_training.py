@@ -88,6 +88,32 @@ def test_region_encoder_build_score_prob(tmp_path):
         m2.build(rng.normal(size=(2, 16)), None)
 
 
+def test_build_personal_from_fixture(tmp_path, monkeypatch):
+    import json
+    import sys
+
+    from atlas import store
+
+    rows = [json.loads(l) for l in open("tests/fixtures/mailbox.jsonl")]
+    for r in rows:  # pretend the fixture topics are user Gmail labels
+        r["labels"] = json.dumps(["INBOX", "CATEGORY_UPDATES", r["topic"]])
+        r.pop("topic")
+    db = tmp_path / "mail.sqlite"
+    conn = store.connect(db)
+    store.upsert_emails(conn, rows)
+    conn.close()
+    import train.build_personal as bp
+
+    monkeypatch.setattr(bp, "DATASETS", tmp_path / "datasets")
+    monkeypatch.setattr(sys, "argv", ["x", "--db", str(db), "--min-label", "1"])
+    bp.main()
+    out = [json.loads(l) for l in open(tmp_path / "datasets" / "personal" / "emails.jsonl")]
+    assert len(out) == len(rows)
+    labs = {l for e in out for l in e["topics"]}
+    assert "inbox" not in labs and not any(l.startswith("category") for l in labs)
+    assert "hackathon" in labs
+
+
 def test_region_encoder_learns_toy_sets():
     torch = pytest.importorskip("torch")
     import torch.nn.functional as F
