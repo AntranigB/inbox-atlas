@@ -1,0 +1,300 @@
+coding competition
+hackathon registration
+job interview scheduling
+internship offer
+rejection letter from a company
+online coding assessment
+resume feedback
+recruiter reaching out
+salary negotiation
+onboarding paperwork
+team meeting notes
+project deadline extension
+code review request
+bug report
+server outage alert
+password reset
+two factor authentication code
+new device sign in alert
+account security warning
+software subscription renewal
+cloud hosting bill
+domain name renewal
+github pull request notification
+open source contribution
+api key and developer access
+machine learning research paper
+conference paper submission
+academic advisor meeting
+course registration
+homework assignment due
+exam schedule
+grade posted
+lecture slides
+office hours
+teaching assistant announcement
+lab safety training
+research lab meeting
+thesis draft
+graduate school application
+letter of recommendation
+scholarship application
+financial aid
+tuition payment
+student loan
+campus club event
+student government election
+dorm housing assignment
+roommate agreement
+apartment lease signing
+rent payment reminder
+landlord maintenance request
+utility bill
+internet service provider
+moving out of an apartment
+furniture for sale
+package delivery tracking
+order confirmation
+item shipped
+return and refund
+online shopping receipt
+grocery delivery
+food delivery order
+restaurant reservation
+coffee shop rewards
+discount coupon
+black friday sale
+new product launch
+newsletter digest
+weekly tech news
+political news update
+local news
+weather alert
+flight booking confirmation
+flight delay or cancellation
+boarding pass
+hotel reservation
+airbnb booking
+rental car
+train tickets
+travel itinerary
+passport renewal
+visa application
+travel insurance
+vacation planning
+road trip with friends
+concert tickets
+sports game tickets
+movie night plans
+birthday party invitation
+wedding invitation
+baby shower
+holiday plans with family
+thanksgiving dinner
+christmas gifts
+family group chat
+message from mom
+message from dad
+sibling news
+grandparents visiting
+friend asking to hang out
+catching up with an old friend
+dating app match
+breakup
+condolences and funeral
+doctor appointment
+dentist appointment
+prescription refill
+health insurance claim
+medical test results
+therapy session
+mental health resources
+gym membership
+running race registration
+workout plan
+yoga class
+fitness tracker summary
+diet and nutrition
+recipe ideas
+cooking class
+bank statement
+credit card payment due
+suspicious transaction alert
+direct deposit received
+paycheck stub
+tax return filing
+tax documents available
+investment portfolio update
+stock market news
+cryptocurrency exchange
+retirement account
+venmo payment request
+splitting a bill with friends
+money owed to a friend
+paypal receipt
+charity donation receipt
+fundraiser
+volunteer opportunity
+community service hours
+church or religious event
+political campaign donation request
+voter registration
+jury duty summons
+car insurance renewal
+car repair estimate
+parking ticket
+driver license renewal
+public transit pass
+bike share membership
+phone bill
+phone upgrade offer
+streaming service subscription
+music playlist recommendation
+podcast episode
+video game purchase
+gaming tournament
+esports team
+board game night
+book club
+library book due
+ebook purchase
+online course enrollment
+coding bootcamp
+certificate of completion
+webinar invitation
+workshop registration
+career fair
+networking event
+linkedin connection request
+alumni association
+mentorship program
+startup pitch competition
+venture capital funding
+product feedback survey
+customer support ticket
+complaint about a service
+app store review
+beta testing invite
+early access waitlist
+feature request
+security vulnerability disclosure
+privacy policy update
+terms of service change
+data breach notification
+spam and phishing attempt
+lottery scam
+cold sales outreach
+marketing promotion
+loyalty points expiring
+gift card balance
+calendar invite accepted
+meeting rescheduled
+zoom call link
+slack workspace invitation
+shared google doc
+shared photo album
+file sharing link
+backup storage full
+computer running slow
+printer not working
+laptop repair
+new laptop purchase
+phone screen broken
+smart home device
+pet vet appointment
+dog walking
+adopting a pet
+gardening tips
+house cleaning service
+home improvement project
+real estate listing
+mortgage application
+neighborhood association
+noise complaint
+lost and found item
+campus dining menu
+meal plan balance
+study group
+group project coordination
+peer review of an essay
+writing center appointment
+research participant recruitment
+survey for a class
+math problem set
+physics lab report
+chemistry exam
+biology research
+computer science lecture
+programming assignment autograder
+competitive programming contest results
+leetcode daily challenge
+codeforces rating change
+kaggle competition
+robotics team
+math olympiad
+debate tournament
+music lesson
+orchestra rehearsal
+theater audition
+art exhibition
+photography contest
+film festival
+dance performance
+sports team practice
+intramural league
+marathon training
+hiking trip
+camping gear
+ski trip
+beach weekend
+study abroad program
+language exchange partner
+learning a new language
+immigration paperwork
+international student office
+work authorization
+remote job opportunity
+freelance gig
+side project collaboration
+invoice for freelance work
+contract to sign
+legal notice
+lawyer consultation
+small business registration
+selling items online
+etsy shop order
+ebay auction
+craigslist reply
+carpool to campus
+airport pickup
+ride share receipt
+gas station receipt
+electric vehicle charging
+climate and environment news
+recycling program
+city council meeting
+public library event
+museum membership
+zoo or aquarium visit
+theme park tickets
+kids school event
+parent teacher conference
+babysitting
+elder care
+insurance open enrollment
+benefits enrollment at work
+performance review
+promotion announcement
+team offsite
+company all hands
+layoffs announcement
+resignation letter
+farewell lunch for a coworker
+expense report reimbursement
+business travel approval
+office move
+it helpdesk ticket
+new hire welcome
+quarterly goals planning
+product roadmap
+design mockup review
