@@ -48,7 +48,7 @@ def grok_sets(emails, grok, embed_fn, n_micro=1500, dist=0.25, min_members=8, he
     if len(phrases) < 50:
         return []
     V = embed_fn(phrases)
-    km = MiniBatchKMeans(n_clusters=min(n_micro, len(phrases) // 4), random_state=0, n_init=3, batch_size=4096).fit(V)
+    km = MiniBatchKMeans(n_clusters=min(n_micro, len(phrases) // 4), random_state=0, n_init=1, batch_size=4096).fit(V)
     C = km.cluster_centers_
     C = C / np.linalg.norm(C, axis=1, keepdims=True)
     agg = AgglomerativeClustering(n_clusters=None, metric="cosine", linkage="average", distance_threshold=dist).fit(C)

@@ -7,7 +7,8 @@ Architecture (Lee et al. 2019, "Set Transformer"): input projection + type embed
   tau_k per-anchor temperatures (softplus)
   b     a scalar boundary
 Membership logit for an email embedding e:  m(e) = logsumexp_k(tau_k * cos(e, a_k)) - b.
-A scalar temperature T fit on held-out data makes sigmoid(m / T) a calibrated P(member).
+A scalar temperature T and offset fit on held-out data make sigmoid((m - shift) / T) a calibrated
+P(member) at the natural inbox base rate.
 
 Inference is numpy in, numpy out, and runs on CPU or MPS:
     model = LearnedRegionModel.load("models/atlas-embed/region.pt")
@@ -116,11 +117,12 @@ def _norm(x):
 class LearnedRegion:
     kind = "learned"
 
-    def __init__(self, anchors, tau, b, T, pos_vecs):
+    def __init__(self, anchors, tau, b, T, pos_vecs, shift=0.0):
         self.anchors = anchors  # (K, d)
         self.tau = tau  # (K,)
         self.b = float(b)
         self.T = float(T)
+        self.shift = float(shift)
         self._pos = pos_vecs
 
     def score(self, E):
@@ -130,7 +132,7 @@ class LearnedRegion:
         return (mx[:, 0] + np.log(np.exp(z - mx).sum(1))) - self.b
 
     def prob(self, E):
-        return 1.0 / (1.0 + np.exp(-np.clip(self.score(E) / self.T, -50, 50)))
+        return 1.0 / (1.0 + np.exp(-np.clip((self.score(E) - self.shift) / self.T, -50, 50)))
 
     def describe(self):
         sims = self.anchors @ self._pos.T if len(self._pos) else np.zeros((len(self.anchors), 0))
@@ -140,15 +142,17 @@ class LearnedRegion:
             "tau": [round(float(t), 3) for t in self.tau],
             "bias": round(self.b, 3),
             "temperature": round(self.T, 3),
+            "shift": round(self.shift, 3),
             "anchor_facets": [int(s.argmax()) if s.size else None for s in sims],
             "anchor_facet_cos": [round(float(s.max()), 3) if s.size else None for s in sims],
         }
 
 
 class LearnedRegionModel:
-    def __init__(self, net, T=1.0, meta=None, device="cpu"):
+    def __init__(self, net, T=1.0, meta=None, device="cpu", shift=0.0):
         self.net = net.eval().to(device)
         self.T = float(T)
+        self.shift = float(shift)
         self.meta = meta or {}
         self.device = device
         self.dim = net.cfg["d"]
@@ -158,10 +162,10 @@ class LearnedRegionModel:
         ck = torch.load(path, map_location="cpu", weights_only=False)
         net = SetRegionNet(**ck["config"])
         net.load_state_dict(ck["state_dict"])
-        return cls(net, ck.get("T", 1.0), ck.get("meta"), device)
+        return cls(net, ck.get("T", 1.0), ck.get("meta"), device, ck.get("shift", 0.0))
 
     def save(self, path):
-        torch.save({"config": self.net.cfg, "state_dict": self.net.state_dict(), "T": self.T, "meta": self.meta}, path)
+        torch.save({"config": self.net.cfg, "state_dict": self.net.state_dict(), "T": self.T, "shift": self.shift, "meta": self.meta}, path)
 
     def build(self, pos_vecs, neg_vecs=None):
         P = _norm(pos_vecs)
@@ -173,4 +177,4 @@ class LearnedRegionModel:
             Nt = torch.from_numpy(N)[None].to(self.device)
             a, tau, b = self.net(Pt, torch.ones(1, len(P), dtype=torch.bool, device=self.device),
                                  Nt, torch.ones(1, len(N), dtype=torch.bool, device=self.device))
-        return LearnedRegion(a[0].cpu().numpy(), tau[0].cpu().numpy(), float(b[0]), self.T, P)
+        return LearnedRegion(a[0].cpu().numpy(), tau[0].cpu().numpy(), float(b[0]), self.T, P, self.shift)

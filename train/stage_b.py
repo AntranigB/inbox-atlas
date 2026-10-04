@@ -33,11 +33,22 @@ def embed_cache(enc, emails, path):
     return E
 
 
+_grok_cache = {}
+
+
 def build_sets(emails, topics, grok, enc, pool_split):
-    """Topic sets with members restricted to emails of the given splits."""
+    """Topic sets with members restricted to emails of the given splits. Grok phrase clusters are
+    computed once over train + val emails, then members are filtered per split."""
     pool = [e for e in emails if e["split"] in pool_split]
     sets = folder_sets(pool, topics, grok)
-    sets += grok_sets(pool, grok, enc.encode_queries)
+    if "g" not in _grok_cache:
+        t0 = time.time()
+        _grok_cache["g"] = grok_sets([e for e in emails if e["split"] in ("train", "val")], grok, enc.encode_queries)
+        print(f"grok clusters {len(_grok_cache['g'])} in {time.time() - t0:.0f}s", flush=True)
+    ids = {e["id"] for e in pool}
+    for g in _grok_cache["g"]:
+        mem = [m for m in g["members"] if m in ids]
+        sets.append({**g, "members": mem})
     return [s for s in sets if len(s["members"]) >= 5]
 
 
@@ -203,7 +214,8 @@ def main():
         torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
         opt.step()
         sched.step()
-        ema = float(loss) if ema is None else 0.98 * ema + 0.02 * float(loss)
+        lv = float(loss.detach())
+        ema = lv if ema is None else 0.98 * ema + 0.02 * lv
         if step % 100 == 0:
             rec = {"step": step, "loss": round(float(loss), 4), "ema": round(ema, 4), "bce": round(float(l_bce), 4),
                    "neg": round(float(l_neg), 4), "kd": round(float(l_kd), 4), "tau": round(float(tau.mean()), 2),
@@ -229,21 +241,20 @@ def main():
                 ys.append(y.cpu())
     M = torch.cat(ms)
     Yv = torch.cat(ys)
-    best_T, best_nll = 1.0, 1e9
-    for lt in np.linspace(-2, 3, 101):
-        T = float(math.exp(lt))
-        nll = float(F.binary_cross_entropy_with_logits(M / T, Yv))
-        if nll < best_nll:
-            best_T, best_nll = T, nll
-    from train.metrics import auroc, ece
+    # sets are sampled roughly balanced in training, the inbox is not: fit a temperature T and a
+    # scalar offset on the natural val distribution, P(member) = sigmoid((m - shift) / T)
+    from train.metrics import auroc, ece, fit_platt
 
-    p = torch.sigmoid(M / best_T).numpy()
-    cal = {"T": best_T, "nll": best_nll, "val_auroc": auroc(Yv.numpy(), M.numpy()), "val_ece": ece(Yv.numpy(), p),
+    sa, sc = fit_platt(Yv.numpy(), M.numpy())
+    best_T, shift = 1.0 / max(sa, 1e-6), -sc / max(sa, 1e-6)
+    best_nll = float(F.binary_cross_entropy_with_logits((M - shift) / best_T, Yv))
+    p = torch.sigmoid((M - shift) / best_T).numpy()
+    cal = {"T": best_T, "shift": shift, "nll": best_nll, "val_auroc": auroc(Yv.numpy(), M.numpy()), "val_ece": ece(Yv.numpy(), p),
            "val_ece_T1": ece(Yv.numpy(), torch.sigmoid(M).numpy()), "n": int(len(Yv)), "pos_rate": float(Yv.mean())}
     print("calibration", json.dumps(cal), flush=True)
     out = Path(a.out) if a.out else mp / "region.pt"
     net_cpu = net.cpu()
-    model = LearnedRegionModel(net_cpu, best_T, {"run": a.run, "encoder": str(mp), "calibration": cal,
+    model = LearnedRegionModel(net_cpu, best_T, shift=shift, meta={"run": a.run, "encoder": str(mp), "calibration": cal,
                                                  "steps": a.steps, "args": vars(a)})
     model.save(out)
     (run / "done.json").write_text(json.dumps({"out": str(out), "calibration": cal}, indent=1))
