@@ -101,7 +101,7 @@ Every caller (web chat, voice agent, iMessage) uses the same tool list:
 
 | Tool | Args | Returns |
 |---|---|---|
-| `search_region` | `positive[] negative[] after? before? from? k=10` | `{region:{size, facet_hits, nearest_clusters}, hits:[{id, from, date, subject, snippet, z, prob}]}` |
+| `search_region` | `topic` (server expands it like the web search) or `positive[]`, `negative[] after? before? from? k=10` | `{region:{size, facet_hits, nearest_clusters}, hits:[{id, from, date, subject, snippet, z, prob}], borderline:[...]}` |
 | `is_related` | `topic positive[]? ` | `{related: bool, confidence, count, max_z, examples[]}` |
 | `get_email` | `id` | `{id, from, date, subject, body(<=2000 chars)}` |
 | `list_clusters` | | `[{id, label, size}]` |

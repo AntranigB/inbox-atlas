@@ -2,6 +2,8 @@
 
 import hashlib
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
@@ -9,6 +11,24 @@ from atlas import config
 
 BGE_BASE = "BAAI/bge-base-en-v1.5"
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
+
+# Torch on Apple MPS aborts the whole process ("A command encoder is already encoding to this
+# command buffer") when two threads run the model at once, and FastAPI runs sync routes on a
+# thread pool. Every model forward pass goes through this one worker thread instead.
+_worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="atlas-encode")
+_on_worker = threading.local()
+
+
+def serial(fn, *args, **kw):
+    """Run fn on the single encoder thread (directly if already on it)."""
+    if getattr(_on_worker, "yes", False):
+        return fn(*args, **kw)
+
+    def run():
+        _on_worker.yes = True
+        return fn(*args, **kw)
+
+    return _worker.submit(run).result()
 
 
 def _normalize(x):
@@ -57,7 +77,7 @@ class STEncoder(Encoder):
         self.name = name if not dim else f"{name}-{dim}"
 
     def encode_docs(self, texts):
-        return _normalize(self.model.encode(list(texts), batch_size=64, normalize_embeddings=True))
+        return _normalize(serial(self.model.encode, list(texts), batch_size=64, normalize_embeddings=True))
 
     def encode_queries(self, texts):
         return self.encode_docs([QUERY_PREFIX + t for t in texts])
