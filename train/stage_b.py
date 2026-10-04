@@ -66,7 +66,7 @@ def main():
     ap.add_argument("--no-neg-phrases", action="store_true")
     ap.add_argument("--no-distill", action="store_true")
     ap.add_argument("--no-facets", action="store_true", help="anchors only, phrases are not used as extra anchors")
-    ap.add_argument("--all-negatives", action="store_true", help="draw negatives from all emails, not only same-source labeled ones")
+    ap.add_argument("--pu", action="store_true", help="draw negatives only from emails labeled by the same source")
     ap.add_argument("--out", default=None, help="region.pt path, default <model>/region.pt")
     a = ap.parse_args()
 
@@ -148,10 +148,10 @@ def main():
     conf = (C @ C.T).fill_diagonal_(-1).topk(20, dim=1).indices.cpu().numpy()
     # Labels are partial (only folder-filed or Grok-labeled emails carry topics), so an unlabeled
     # email near a topic is often a true member. Negatives for a set come only from emails labeled
-    # by the same source (positive-unlabeled correction); --all-negatives turns this off.
+    # by the same source with --pu (positive-unlabeled correction; it did not help in b5-pu).
     pools = {}
     for src in ("folder", "grok"):
-        if a.all_negatives:
+        if not a.pu:
             rows = [i for i, e in enumerate(emails) if e["split"] == "train"]
         elif src == "folder":
             rows = [i for i, e in enumerate(emails) if e["split"] == "train" and e.get("topics")]
@@ -204,27 +204,32 @@ def main():
         pm = max(len(x[0]) for x in items)
         nm = max(len(x[1]) for x in items)
         em = max(len(x[2]) for x in items)
-        D = PVt.shape[1]
-        P = torch.zeros(B, pm, D, device=dev)
-        Pm = torch.zeros(B, pm, dtype=torch.bool, device=dev)
-        N = torch.zeros(B, nm, D, device=dev)
-        Nm = torch.zeros(B, nm, dtype=torch.bool, device=dev)
-        Ei = torch.zeros(B, em, dtype=torch.long, device=dev)
-        Y = torch.zeros(B, em, device=dev)
-        W = torch.zeros(B, em, device=dev)
-        NG = torch.zeros(B, em, device=dev)
+        # build padded index arrays in numpy, then one host-to-device copy each (the old per-row
+        # torch.tensor calls made this phase CPU bound with the GPU mostly idle)
+        Pi = np.zeros((B, pm), np.int64)
+        Pm = np.zeros((B, pm), bool)
+        Ni = np.zeros((B, max(nm, 1)), np.int64)
+        Nm = np.zeros((B, max(nm, 1)), bool)
+        Ei = np.zeros((B, em), np.int64)
+        Y = np.zeros((B, em), np.float32)
+        W = np.zeros((B, em), np.float32)
+        NG = np.zeros((B, em), np.float32)
         for b, (p, n, ids, y, ng) in enumerate(items):
-            P[b, : len(p)] = PVt[p]
+            Pi[b, : len(p)] = p
             Pm[b, : len(p)] = True
-            if n:
-                N[b, : len(n)] = PVt[n]
-                Nm[b, : len(n)] = True
-            Ei[b, : len(ids)] = torch.tensor(ids, device=dev)
-            Y[b, : len(y)] = torch.tensor(y, device=dev)
+            Ni[b, : len(n)] = n
+            Nm[b, : len(n)] = True
+            Ei[b, : len(ids)] = ids
+            Y[b, : len(y)] = y
             W[b, : len(y)] = 1.0
-            NG[b, : len(ng)] = torch.tensor(ng, device=dev)
-        # phrase dropout as embedding noise
-        return P, Pm, N, Nm, Et[Ei], Y, W, NG
+            NG[b, : len(ng)] = ng
+        t = lambda x: torch.from_numpy(x).to(dev, non_blocking=True)  # noqa: E731
+        Pm_t, Nm_t = t(Pm), t(Nm)
+        P = PVt[t(Pi)] * Pm_t.unsqueeze(-1)
+        N = PVt[t(Ni)] * Nm_t.unsqueeze(-1)
+        if nm == 0:
+            N, Nm_t = N[:, :0], Nm_t[:, :0]
+        return P, Pm_t, N, Nm_t, Et[t(Ei)], t(Y), t(W), t(NG)
 
     tset = {i: teacher.get(s["name"]) for i, s in enumerate(sets) if s["src"] == "folder" and teacher.get(s["name"])}
     print(f"teacher lists for {len(tset)} sets", flush=True)
@@ -292,7 +297,7 @@ def main():
                 P = PVt[rng.sample(pool, k)].unsqueeze(0)
                 A, tau, b, fx = net(P, torch.ones(1, k, dtype=torch.bool, device=dev), None, None)
                 m = membership(Et[val_rows], A, tau, b, fx)[0]
-                y = torch.tensor([1.0 if int(r) in s["mset"] else 0.0 for r in val_rows.tolist()], device=dev)
+                y = torch.from_numpy(np.isin(np.asarray(vlist), list(s["mset"])).astype(np.float32)).to(dev)
                 ms.append(m.cpu())
                 ys.append(y.cpu())
     M = torch.cat(ms)
