@@ -17,7 +17,7 @@ for name in ("search", "voice", "messaging"):
         mod = importlib.import_module(f"atlas.api.{name}")
         app.include_router(mod.router)
         if hasattr(mod, "on_startup"):
-            app.add_event_handler("startup", mod.on_startup)
+            app.router.on_startup.append(mod.on_startup)
     except ModuleNotFoundError as e:
         if e.name != f"atlas.api.{name}":
             raise
