@@ -34,6 +34,7 @@ Token-efficient retrieval for LLM agents over your email and your second brain. 
   - [Is this topic in my inbox?](#is-this-topic-in-my-inbox)
   - [Demo inbox eval](#demo-inbox-eval)
   - [Enron training and eval](#enron-training-and-eval)
+- [Why this is more than RAG](#why-this-is-more-than-rag)
 - [What is new and what is not](#what-is-new-and-what-is-not)
 - [Repository layout](#repository-layout)
 - [Reproduction](#reproduction)
@@ -53,6 +54,8 @@ Results. Agents searching by word matching miss anything phrased differently fro
 LLM agents (Claude Code, Hermes, OpenClaw, an Obsidian second brain) either paste whole documents into context or grep and open file after file. Inbox Atlas hands them the minimal context instead: `atlas_context(question, budget_tokens)` returns the region, the few emails or vault notes inside it, and only the sentences that answer the question, packed under a token budget, or a calibrated "nothing here" so the agent stops searching. It covers Gmail and an Obsidian vault (notes chunked by heading, embedded locally, never sent to Grok at ingest) and ships as an MCP server (`mcp/server.py`, stdio and streamable HTTP) and as `POST /api/context`. Setup for each agent: [docs/mcp.md](docs/mcp.md).
 
 <img src="assets/token_efficiency.png" width="860" alt="Answer accuracy vs context tokens per strategy, and tokens spent on absent topics" />
+
+<p align="center"><img src="assets/token_savings.png" width="760" alt="Keyword search vs Inbox Atlas: zero-hit queries, recall, context tokens, tokens on absent topics, and tokens on a real vault" /></p>
 
 **Why it saves tokens.** An agent that searches by word matching has to guess the words the email used. When the email says "Codeforces Round 1043" and the question says "coding competition", grep finds nothing, so the agent rewrites the query, greps again and opens file after file. Atlas searches by meaning, so the first call lands inside the region, and it returns only the sentences that answer the question.
 
@@ -263,6 +266,18 @@ Region membership on held-out folders (`runs/eval3`):
 
 The trained encoder lifts region membership AUROC from 0.819 to 0.843 on topics it never saw, and the learned region gives the best calibrated probabilities (ECE 0.046). Full details and the student ablations are in [`TRAINING.md`](TRAINING.md).
 
+## Why this is more than RAG
+
+<p align="center"><img src="assets/more_than_rag.png" width="900" alt="Standard RAG vs Inbox Atlas, five differences, each with a measured number" /></p>
+
+Standard RAG embeds the question, takes the top k chunks and pastes them in. It always returns something, it treats the question as one point, and it hands over whole chunks. Inbox Atlas changes each of those, and each change is measured against chunk RAG or a single query vector on the same data:
+
+1. **It knows when nothing is there.** Every document is scored against random topic sets with the same number of facets, so a high score has to stand out from chance. The result is a calibrated yes or no that tells the agent to stop: 31 tokens on absent topics instead of 742 for chunk RAG, abstaining on 13 of 14.
+2. **A question is a region, not a point.** Grok writes facets and exclusions, so "coding competition" pulls in Codeforces, ICPC and DevPost and pushes out the HackerRank job test that a single query vector ranks first.
+3. **It returns sentences under a budget, not chunks.** Same 75% accuracy as chunk RAG at 249 tokens instead of 740.
+4. **It navigates folders before notes.** Folder vectors over a markdown tree find where a question lives, then drill down: 210 tokens to the folder, the note and the exact line.
+5. **Its encoder is trained for mail.** A frozen bge backbone with LoRA, distilled from a frozen teacher, beats the base model on vague queries (nDCG@10 0.692 vs 0.635).
+
 ## What is new and what is not
 
 | piece | status |
@@ -328,4 +343,4 @@ Enron email corpus (CMU, William Cohen). BAAI `bge-base-en-v1.5` and `bge-rerank
 
 ## Authors
 
-Avinash Senthil.
+Avinash Senthil, Antranig Baghdassarian, Chelsea Lin, Emily Han.

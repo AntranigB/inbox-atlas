@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from atlas import config, store
+from atlas.db import qlog
 from atlas.agent import grok, tools
 from atlas.search import hybrid
 from atlas.search.engine import available_encoders, get_engine
@@ -72,7 +73,9 @@ def api_search(b: SearchBody):
         pos, neg = exp["positive"], exp["negative"]
         for kf, v in (exp.get("filters") or {}).items():
             filters.setdefault(kf, v)
-    res = hybrid.search(b.query, pos or [], neg or [], filters, k=b.k, mode=mode, engine=eng)
+    with qlog.timed(f"search_{mode}", b.query) as row:
+        res = hybrid.search(b.query, pos or [], neg or [], filters, k=b.k, mode=mode, engine=eng)
+        row.update(n_facets=len(pos or []) or None, region_size=(res.get("region") or {}).get("size"))
     res["expansion"] = exp
     if res.get("region"):
         res["facet_points"] = _facet_points(eng, [b.query] + list(pos or []) if b.query else list(pos or []))

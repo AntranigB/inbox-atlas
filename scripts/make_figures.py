@@ -298,12 +298,97 @@ def fig_architecture():
     save(fig, "architecture.png")
 
 
+# Numbers below are copied from eval/token_results.md and eval/results.md (measured runs).
+SAVINGS = [
+    ("Meaning-based queries with zero relevant hits", "of 12 queries, lower is better", 7, 0, "{:.0f}", "{:.0f}", "7 to 0"),
+    ("Recall@10 on meaning-based queries", "higher is better", 0.175, 0.867, "{:.3f}", "{:.3f}", "about 5x"),
+    ("Context tokens per question", "lower is better", 4445, 249, "{:,.0f}", "{:,.0f}", "18x fewer"),
+    ("Tokens spent when the topic is not there", "lower is better", 1858, 31, "{:,.0f}", "{:,.0f}", "60x fewer"),
+    ("Real 419 note vault: tokens handed to the agent", "lower is better", 10907, 625, "{:,.0f}", "{:,.0f}", "17x fewer"),
+]
+
+
+def fig_token_savings():
+    fig, axes = plt.subplots(len(SAVINGS), 1, figsize=(9, 7.4))
+    fig.subplots_adjust(hspace=1.05, left=0.2, right=0.84, top=0.88, bottom=0.03)
+    fig.suptitle("Why it saves tokens: keyword search vs Inbox Atlas", fontsize=13, color=INK, x=0.03, ha="left",
+                 weight="bold")
+    fig.text(0.03, 0.925, "Measured on the demo inbox, a synthetic vault and a real 419 note vault", fontsize=9,
+             color=MUTED, ha="left")
+    for ax, (title, sub, a, b, fa, fb, badge) in zip(axes, SAVINGS):
+        top = max(a, b) * 1.18 or 1
+        ax.barh([1, 0], [a, b], color=[GRAY, RED], height=0.72)
+        ax.set_xlim(0, top)
+        ax.set_ylim(-0.6, 1.6)
+        ax.set_yticks([1, 0], ["keyword / grep", "Atlas"], fontsize=9)
+        ax.tick_params(axis="y", length=0)
+        ax.set_xticks([])
+        ax.spines["bottom"].set_visible(False)
+        for y, v, f in ((1, a, fa), (0, b, fb)):
+            ax.text(v + top * 0.012, y, f.format(v), va="center", fontsize=9.5, color=INK,
+                    weight="bold" if y == 0 else "normal")
+        ax.text(0, 1.95, title, transform=ax.get_yaxis_transform(), fontsize=10.5, color=INK, weight="bold")
+        ax.text(1.0, 1.95, sub, transform=ax.get_yaxis_transform(), fontsize=8, color=MUTED, ha="right")
+        ax.text(1.03, 0.5, badge, transform=ax.transAxes, fontsize=11, color=RED, weight="bold", va="center")
+    save(fig, "token_savings.png")
+
+
+# Every row compares against standard chunk RAG (embedding top-8 chunks) or a single query vector.
+VS_RAG = [
+    ("Knows when\nnothing is there",
+     "Always returns k chunks,\neven for topics that do not exist",
+     "Calibrated yes/no from a hub corrected\nnull; abstains and says stop searching",
+     "31 vs 742", "tokens on absent topics\n(abstains on 13 of 14)"),
+    ("Query is a region,\nnot a point",
+     "One query vector; the HackerRank\njob test ranks #1 for\n\"coding competition\"",
+     "Grok facets plus exclusions;\nthe job test falls outside the region",
+     "7 vs 6", "of top 8 on topic,\njob test out of the top 8"),
+    ("Sentences under\na budget",
+     "Pastes 8 whole chunks",
+     "Keeps only the sentences that\nanswer, packed under a token budget",
+     "249 vs 740", "tokens at the same\n75% accuracy"),
+    ("Folders first,\nthen notes",
+     "Flat list of chunks across\nthe whole vault",
+     "Folder vectors find where a question\nlives, then drill down",
+     "210", "tokens to folder, note\nand the exact line"),
+    ("Encoder trained\nfor mail",
+     "Off the shelf embeddings",
+     "Frozen bge + LoRA, distilled from a\nfrozen teacher on 224,867 emails",
+     "0.692 vs 0.635", "nDCG@10 on vague queries,\nunseen emails"),
+]
+
+
+def fig_vs_rag():
+    from matplotlib.patches import FancyBboxPatch
+
+    n = len(VS_RAG)
+    fig, ax = plt.subplots(figsize=(13, 1.35 * n + 1.3))
+    ax.set_xlim(0, 100)
+    ax.set_ylim(0, n * 10 + 4.5)
+    ax.axis("off")
+    cols = [(1, 0, "What changes"), (20, 0, "Standard RAG"), (47, 0, "Inbox Atlas"), (77, 0, "Measured")]
+    for x, w, h in cols:
+        ax.text(x + 0.2, n * 10 + 2.2, h, fontsize=11, weight="bold", color=RED if h == "Inbox Atlas" else INK)
+    for i, (what, rag, atlas, num, unit) in enumerate(VS_RAG):
+        y = (n - 1 - i) * 10 + 0.6
+        ax.add_patch(FancyBboxPatch((0, y), 100, 8.6, boxstyle="round,pad=0,rounding_size=1.2",
+                                    fc="#f6f8fa" if i % 2 == 0 else "white", ec="#d0d7de", lw=0.8))
+        ax.text(1.2, y + 4.3, what, va="center", fontsize=10.5, weight="bold", color=INK, linespacing=1.3)
+        ax.text(20.5, y + 4.3, rag, va="center", fontsize=9, color=MUTED, linespacing=1.4)
+        ax.text(47.5, y + 4.3, atlas, va="center", fontsize=9, color=INK, linespacing=1.4)
+        ax.text(77.5, y + 5.6, num, va="center", fontsize=15, weight="bold", color=RED)
+        ax.text(77.5, y + 2.2, unit, va="center", fontsize=7.8, color=MUTED, linespacing=1.3)
+    save(fig, "more_than_rag.png")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", default=str(ROOT / "data/runs"))
     ap.add_argument("--api", default="http://localhost:8765")
     a = ap.parse_args()
     fig_architecture()
+    fig_token_savings()
+    fig_vs_rag()
     fig_training(Path(a.runs))
     fig_eval(Path(a.runs))
     fig_search(a.api)

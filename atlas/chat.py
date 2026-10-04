@@ -188,9 +188,13 @@ def chat(text: str, session_id: str | None = None, channel: str = "web", ask=Non
             kw["persist"] = False
     except (TypeError, ValueError):
         pass
-    res = ask(text, channel=channel, history=history, **kw)
-    if not isinstance(res, dict):
-        res = {"reply": str(res)}
+    from atlas.db import qlog
+
+    with qlog.timed(f"chat_{channel}", text) as row:
+        res = ask(text, channel=channel, history=history, **kw)
+        if not isinstance(res, dict):
+            res = {"reply": str(res)}
+        row.update(region_size=(res.get("region") or {}).get("size"), tokens_returned=len(res.get("reply") or "") // 4)
     store.add_message(session_id, "user", text, channel)
     store.add_message(session_id, "assistant", res.get("reply") or "", channel)
     return {**res, "session_id": session_id, "history_used": len(history)}

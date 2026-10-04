@@ -8,6 +8,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from atlas.context import pack, tree
+from atlas.db import qlog
 
 router = APIRouter()
 
@@ -33,7 +34,9 @@ class GetBody(BaseModel):
 
 @router.post("/api/context")
 def api_context(b: ContextBody):
-    p = pack.build_context(b.question, budget_tokens=b.budget_tokens, sources=tuple(b.sources or pack.SOURCES), k=b.k)
+    with qlog.timed("agent_context", b.question) as row:
+        p = pack.build_context(b.question, budget_tokens=b.budget_tokens, sources=tuple(b.sources or pack.SOURCES), k=b.k)
+        row.update(region_size=len(p.get("items") or []), tokens_returned=p.get("tokens"))
     return pack.json.loads(pack.dumps(p))
 
 
@@ -44,7 +47,9 @@ def api_context_get(b: GetBody):
 
 @router.post("/api/context/folders")
 def api_context_folders(b: FoldersBody):
-    p = tree.points_of_interest(b.question, k_folders=b.k_folders, k_notes=b.k_notes, within=b.within)
+    with qlog.timed("agent_folders", b.question) as row:
+        p = tree.points_of_interest(b.question, k_folders=b.k_folders, k_notes=b.k_notes, within=b.within)
+        row.update(region_size=len(p.get("folders") or []), tokens_returned=p.get("tokens"))
     return pack.json.loads(pack.dumps(p))
 
 
