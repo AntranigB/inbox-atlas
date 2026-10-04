@@ -43,6 +43,18 @@ GENERIC = {
 }
 
 
+BAD_TOKENS = {"sent", "saved", "save", "deleted", "old", "messages", "attachments", "misc", "inbox", "folder", "mail", "e", "mails"}
+
+
+def good_label(h):
+    toks = h.split()
+    if len(h) < 3 or not toks:
+        return False
+    if sum(t.isdigit() for t in toks) * 2 >= len(toks):
+        return False
+    return not all(t in BAD_TOKENS or t.isdigit() for t in toks) and not (set(toks) & {"sent", "deleted", "saved"})
+
+
 def humanize(folder):
     s = folder.lower().strip()
     s = re.sub(r"[_\-.]+", " ", s)
@@ -121,7 +133,7 @@ def build(limit=None, min_folder=20, heldout_frac=0.15, test_thread_frac=0.10, v
         lab = None
         if r["folder"] and r["folder"].lower() not in GENERIC and r["top"].lower() not in {"sent", "sent_items", "_sent_mail", "deleted_items"}:
             h = humanize(r["folder"])
-            if len(h) >= 3 and not h.isdigit():
+            if good_label(h):
                 lab = h
         if key in by_hash:
             if lab:
