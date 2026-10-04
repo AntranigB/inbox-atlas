@@ -7,6 +7,8 @@ import json
 
 import numpy as np
 
+from atlas import config
+
 from atlas import store
 from atlas.search import region as R
 from atlas.search.engine import Engine, get_engine
@@ -80,8 +82,13 @@ def keyword_ranks(eng, text, mask, n=200):
     return out
 
 
-def region_scores(eng: Engine, query: str, positive=None, negative=None, kind="auto"):
-    """Returns (region, raw, z) over every email in the index."""
+def region_scores(eng: Engine, query: str, positive=None, negative=None, kind=None):
+    """Returns (region, raw, z) over every email in the index.
+
+    Heuristic by default: hub z is calibrated against the heuristic formula, and the learned region
+    (opt in with ATLAS_REGION=learned) scores on a different scale and did not rank better on held-out topics.
+    """
+    kind = kind or config.env("ATLAS_REGION", "heuristic")
     pos_labels = list(dict.fromkeys([query] + list(positive or []) if query else list(positive or [])))
     neg_labels = [n for n in (negative or []) if n]
     P = eng.enc.encode_queries(pos_labels)
