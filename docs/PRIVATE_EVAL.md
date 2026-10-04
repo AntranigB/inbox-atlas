@@ -1,7 +1,7 @@
 # Local retrieval and token evaluation
 
 `eval/private_eval.py` compares keyword search, full-document embedding search, embedding chunks,
-an archived context pack, and the current context pack at 300/800/1500-token budgets.
+an archived context pack, and the current context pack at configurable budgets (300/800/1500 tokens by default).
 It makes no LLM calls: embeddings run locally, facets are disabled, and required facts are checked
 against a question manifest. A first run may download the public embedding model.
 
@@ -52,24 +52,34 @@ ATLAS_DATA=data/private-eval ATLAS_ENCODER=base ATLAS_DB=sqlite \
   uv run python -m eval.private_eval \
   --questions data/private-eval/questions.json \
   --baseline data/private-eval/baseline_pack.py \
+  --budgets 150 300 500 800 1000 1500 2500 \
   --out data/private-eval/results.json
 ```
 
 ## Interpret the results
 
 - `target_hits`: at least one labeled source document appears in the returned context.
-- `evidence_hits`: a target was retrieved and all required fact patterns occur in the context.
-  This is an evidence-retention proxy, not an end-to-end answer correctness score. Matching facts
-  are not guaranteed to belong to the same source, and patterns can miss valid paraphrases.
+- `evidence_hits`: all required patterns occur in retained excerpts of the labeled target sources.
+  Facts appearing only in unrelated documents do not count. Separate chunks can supply different
+  facts, but a pattern cannot span disconnected chunks. This measures evidence retention, not
+  generated-answer correctness; regex patterns can still miss valid paraphrases.
 - `mean_context_tokens`: context text only, including its rendered citations.
 - `mean_payload_tokens`: serialized compact JSON tool result, including metadata; excludes MCP
-  framing, request prompts, query expansion, and answer generation. The original payload repeats
-  excerpts in `context` and `items`; the current MCP payload emits them once.
+  framing, request prompts, query expansion, and answer generation. Each archived module uses its
+  own `tool_payload` when available; older modules use their legacy response shape. Thus a compact
+  baseline is not incorrectly charged for duplicate excerpts.
 - `absent_abstentions` and `present_abstentions`: show both successful abstentions and false negatives.
 
 No model API cost comparison is claimed. All methods use the same imported, cleaned corpus and
-base encoder. Cached embeddings only reuse identical inputs across methods. The full-document
+selected encoder. Cached embeddings only reuse identical inputs across methods. The full-document
 and chunk baselines match the repository's existing evaluator (top 10 documents and top 8
 roughly 120-word chunks). Their budgets differ; report both tokens and evidence retained.
 If you revise the implementation after inspecting failures, those questions are development data;
 use new questions or another mailbox/time period for an independent follow-up test.
+
+The report includes encoder dimension, elapsed evaluation time (excluding initial engine loading),
+manifest/baseline/current-pack SHA-256 hashes, 95th-percentile context length, and budget violations.
+Output files are restricted to owner access before private results are written. Keep the model
+checkpoint and corpus fixed when comparing implementations. To compare the shipped trained model,
+use `ATLAS_ENCODER=models/atlas-embed`; add `ATLAS_DIM=256` to test its smaller embedding vectors.
+Embedding dimensions affect index memory, not the number of tokens sent to an answer model.

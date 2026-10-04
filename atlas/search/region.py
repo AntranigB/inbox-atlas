@@ -119,7 +119,7 @@ def related_verdict(raw, z, encoder_name, z_min=Z_MIN):
     floor = floor_for(encoder_name)
     member = (z >= z_min) & (raw >= floor)
     if len(z) == 0:
-        return {"related": False, "confidence": 0.5, "count": 0, "max_z": 0.0, "top_raw": 0.0, "floor": floor}
+        return {"related": False, "confidence": 0.5, "count": 0, "max_z": 0.0, "top_raw": 0.0, "floor": floor, "member": member}
     top = int(np.argmax(np.where(raw >= floor, z, -np.inf))) if member.any() else int(np.argmax(z))
     mz, mr = float(z[top]), float(raw[top])
     related = bool(member.any())

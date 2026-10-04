@@ -112,7 +112,7 @@ def keyword_terms(q):
     return " ".join(t for t in re.findall(r"[A-Za-z0-9]+", q) if t.lower() not in STOP)
 
 
-def strat_keyword(cp, q, sources):
+def strat_keyword(cp, q, sources, return_blocks=False):
     seen = []
     for rid, _ in store.fts_search(cp.eng.conn, keyword_terms(q), 400):
         d = cp.doc_of.get(rid)
@@ -120,22 +120,28 @@ def strat_keyword(cp, q, sources):
             seen.append(d)
         if len(seen) >= TOP_DOCS:
             break
-    return seen, "\n\n---\n\n".join(cp.text[d] for d in seen)
+    blocks = [(d, cp.text[d]) for d in seen]
+    result = (seen, "\n\n---\n\n".join(text for _, text in blocks))
+    return (*result, blocks) if return_blocks else result
 
 
-def strat_embed_docs(cp, q, sources):
+def strat_embed_docs(cp, q, sources, return_blocks=False):
     qv = cp.eng.enc.encode_queries([q])[0]
     s = np.where(cp.mask(sources), cp.D @ qv, -np.inf)
     top = [cp.ids[i] for i in np.argsort(-s)[:TOP_DOCS] if np.isfinite(s[i])]
-    return top, "\n\n---\n\n".join(cp.text[d] for d in top)
+    blocks = [(d, cp.text[d]) for d in top]
+    result = (top, "\n\n---\n\n".join(text for _, text in blocks))
+    return (*result, blocks) if return_blocks else result
 
 
-def strat_chunks(cp, q, sources):
+def strat_chunks(cp, q, sources, return_blocks=False):
     qv = cp.eng.enc.encode_queries([q])[0]
     ok = np.array([cp.kind[d] in sources for d, _ in cp.chunks])
     s = np.where(ok, cp.C @ qv, -np.inf)
     top = [i for i in np.argsort(-s)[:TOP_CHUNKS] if np.isfinite(s[i])]
-    return list(dict.fromkeys(cp.chunks[i][0] for i in top)), "\n\n---\n\n".join(cp.chunks[i][1] for i in top)
+    blocks = [cp.chunks[i] for i in top]
+    result = (list(dict.fromkeys(d for d, _ in blocks)), "\n\n---\n\n".join(text for _, text in blocks))
+    return (*result, blocks) if return_blocks else result
 
 
 def strat_atlas(cp, q, sources, budget, use_grok=True):

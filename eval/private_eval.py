@@ -9,16 +9,19 @@ NOT generated-answer accuracy. Compare the current pack with an archived pack.py
 
 Manifest: {"sources": ["gmail"], "questions": [{"q": "...", "targets": ["message id"],
 "evidence": ["regex for fact 1", "regex for fact 2"]}], "absent": ["topic", ...]}.
-All required facts must appear, with at least one target document retrieved. Include
+All required facts must appear in retained excerpts of the expected source documents. Include
 alternative valid source IDs in targets. Keep private manifests/results under data/.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
+import os
 import re
+import time
 from pathlib import Path
 
 import numpy as np
@@ -56,6 +59,15 @@ def evidence_hit(ctx, docs, item):
         re.search(pattern, ctx, re.I) is not None for pattern in item["evidence"])
 
 
+def evidence_from_blocks(blocks, item):
+    """Credit required facts only when retained in an expected source document."""
+    targets = set(item["targets"])
+    retained = [text for doc, text in blocks if doc in targets]
+    return bool(retained) and all(
+        any(re.search(pattern, text, re.I) is not None for text in retained)
+        for pattern in item["evidence"])
+
+
 def old_payload(p):
     return {k: p.get(k) for k in ("answerable", "confidence", "reason", "context", "items", "tokens",
                                   "tokens_saved_vs_naive")} | {
@@ -70,6 +82,20 @@ def load_baseline(path):
 
 
 def run(eng, manifest, baseline, budgets=(300, 800, 1500)):
+    original_encoder = eng.enc if eng is not None else None
+    try:
+        return _run(eng, manifest, baseline, budgets)
+    finally:
+        if eng is not None:
+            eng.enc = original_encoder
+
+
+def _run(eng, manifest, baseline, budgets):
+    if not manifest.get("questions"):
+        raise ValueError("At least one present question is required")
+    if not budgets or any(b < 0 for b in budgets):
+        raise ValueError("Budgets must be a nonempty list of nonnegative integers")
+    started = time.perf_counter()
     eng.enc = CachedEncoder(eng.enc)
     cp = Corpus(eng)
     sources = tuple(manifest.get("sources", ["gmail"]))
@@ -87,21 +113,23 @@ def run(eng, manifest, baseline, budgets=(300, 800, 1500)):
         q, results = item["q"], {}
         for name, func in (("keyword docs", strat_keyword), ("embedding docs", strat_embed_docs),
                            ("embedding chunks", strat_chunks)):
-            docs, ctx = func(cp, q, sources)
+            docs, ctx, blocks = func(cp, q, sources, return_blocks=True)
             results[name] = {"context_tokens": pack.count_tokens(ctx), "target_hit": bool(set(docs) & set(item["targets"])),
-                             "evidence_hit": evidence_hit(ctx, docs, item) if not absent else None,
+                             "evidence_hit": evidence_from_blocks(blocks, item) if not absent else None,
                              "abstained": not bool(docs)}
         for version, module in (("original", baseline), ("improved", pack)):
             for budget in budgets:
                 p = module.build_context(q, budget_tokens=budget, sources=sources, engine=eng, use_grok=False)
                 docs = list(dict.fromkeys(cp.doc_of.get("obs:" + it["uri"] if it["source"] == "obsidian" else it["uri"][6:])
                                          for it in p["items"]))
-                payload = old_payload(p) if version == "original" else pack.tool_payload(p)
+                blocks = [(cp.doc_of.get("obs:" + it["uri"] if it["source"] == "obsidian" else it["uri"][6:]),
+                           module.render([it])) for it in p["items"]]
+                payload = getattr(module, "tool_payload", old_payload)(p)
                 results[f"{version} @{budget}"] = {
                     "context_tokens": pack.count_tokens(p["context"]),
                     "payload_tokens": pack.count_tokens(json.dumps(payload, ensure_ascii=False, separators=(",", ":"))),
                     "target_hit": bool(set(docs) & set(item["targets"])),
-                    "evidence_hit": evidence_hit(p["context"], docs, item) if not absent else None,
+                    "evidence_hit": evidence_from_blocks(blocks, item) if not absent else None,
                     "abstained": not p["answerable"], "budget_exceeded": pack.count_tokens(p["context"]) > budget,
                     "context": p["context"], "docs": docs}
         rows.append({"question": q, "absent": absent, "strategies": results})
@@ -116,11 +144,13 @@ def run(eng, manifest, baseline, budgets=(300, 800, 1500)):
                          "present_count": len(present), "absent_count": len(absent),
                          "absent_abstentions": sum(r["abstained"] for r in absent),
                          "present_abstentions": sum(r["abstained"] for r in present)}
+        summary[name]["p95_context_tokens"] = float(np.percentile([r["context_tokens"] for r in present], 95))
         if "payload_tokens" in present[0]:
             summary[name]["mean_payload_tokens"] = float(np.mean([r["payload_tokens"] for r in present]))
             summary[name]["budget_exceeded"] = sum(r["budget_exceeded"] for r in present + absent)
-    return {"encoder": eng.name, "documents": len(cp.ids), "llm_calls": 0,
-            "metric": "required evidence retention, not generated-answer accuracy", "summary": summary, "rows": rows}
+    return {"encoder": eng.name, "dimension": eng.enc.dim, "elapsed_seconds": round(time.perf_counter() - started, 2),
+            "budgets": list(budgets), "documents": len(cp.ids), "llm_calls": 0,
+            "metric": "required evidence retained in expected sources, not generated-answer accuracy", "summary": summary, "rows": rows}
 
 
 def main():
@@ -128,13 +158,21 @@ def main():
     ap.add_argument("--questions", required=True)
     ap.add_argument("--baseline", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--budgets", type=int, nargs="+", default=[300, 800, 1500])
     args = ap.parse_args()
     manifest = json.loads(Path(args.questions).read_text())
-    result = run(get_engine(), manifest, load_baseline(args.baseline))
+    result = run(get_engine(), manifest, load_baseline(args.baseline), budgets=args.budgets)
+    result["sha256"] = {name: hashlib.sha256(Path(path).read_bytes()).hexdigest()
+                        for name, path in (("manifest", args.questions), ("baseline", args.baseline),
+                                           ("pack", pack.__file__))}
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(result, indent=2))
-    out.chmod(0o600)
+    # Restrict permissions before writing private content, including existing output files.
+    fd = os.open(out, os.O_WRONLY | os.O_CREAT, 0o600)
+    with os.fdopen(fd, "w") as stream:
+        os.fchmod(stream.fileno(), 0o600)
+        stream.truncate(0)
+        stream.write(json.dumps(result, indent=2))
     print(json.dumps(result["summary"], indent=2))
 
 

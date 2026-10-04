@@ -219,3 +219,13 @@ def test_invalid_context_limits_and_compact_http(eng):
     response = c.post("/api/context", json={"question": "hello", "compact": True})
     assert response.status_code == 200
     assert "items" not in response.json()
+
+
+def test_empty_inbox_returns_no_confident_match(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "DATA", tmp_path)
+    monkeypatch.setattr(engmod, "_try_load_index", lambda name: None)
+    engine = engmod.Engine("hash", store.connect(":memory:"))
+    result = pack.build_context("robotics workshop", engine=engine, use_grok=False)
+    assert result["status"] == "no_confident_match"
+    assert not result["answerable"]
+    assert result["items"] == []
