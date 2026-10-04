@@ -56,6 +56,23 @@ def test_cleanup_falls_back_on_error():
 
 
 @respx.mock
+def test_cleanup_hedges_slow_request(monkeypatch):
+    monkeypatch.setattr(cl, "HEDGE", 0.05)
+    n = {"i": 0}
+
+    async def reply(request):
+        n["i"] += 1
+        if n["i"] == 1:
+            await asyncio.sleep(2)
+            return chat_reply("slow")
+        return chat_reply("Fast one.")
+
+    respx.post(CHAT).mock(side_effect=reply)
+    assert asyncio.run(cl.cleanup("um fast one")) == "Fast one."
+    assert n["i"] == 2
+
+
+@respx.mock
 def test_dictate(client):
     stt = respx.post(STT).mock(return_value=httpx.Response(200, json={"text": RAW, "language": "en", "words": []}))
     chat = respx.post(CHAT).mock(return_value=chat_reply("Find me the emails about the coding competition."))

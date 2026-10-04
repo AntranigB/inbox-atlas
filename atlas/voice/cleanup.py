@@ -1,5 +1,6 @@
 """Whisperflow-style cleanup of a raw transcript with a fast Grok chat call."""
 
+import asyncio
 import re
 
 import httpx
@@ -9,7 +10,8 @@ from atlas.voice.stt import client
 
 CHAT_URL = f"{config.XAI_BASE}/chat/completions"
 MODEL = config.env("GROK_CLEANUP_MODEL", "") or config.GROK_MODEL
-TIMEOUT = float(config.env("CLEANUP_TIMEOUT", "5"))
+TIMEOUT = float(config.env("CLEANUP_TIMEOUT", "6"))
+HEDGE = float(config.env("CLEANUP_HEDGE", "1.5"))  # fire a backup request if the first is slow
 
 SYSTEM = (
     "You clean up dictated speech. Output only the cleaned text, nothing else.\n"
@@ -65,14 +67,43 @@ async def cleanup(text: str, style: str = "plain") -> str:
         ],
     }
     try:
-        r = await client().post(CHAT_URL, json=body, timeout=TIMEOUT,
-                                headers={"Authorization": f"Bearer {config.XAI_API_KEY}"})
-        r.raise_for_status()
-        out = r.json()["choices"][0]["message"]["content"].strip()
-    except (httpx.HTTPError, KeyError, IndexError, ValueError):
+        out = await _hedged(body)
+    except (httpx.HTTPError, KeyError, IndexError, ValueError, asyncio.TimeoutError):
         return light_fix(text)
     out = re.sub(r"^<dictation>|</dictation>$", "", out).strip().strip('"')
     return out or light_fix(text)
+
+
+async def _post(body: dict) -> str:
+    r = await client().post(CHAT_URL, json=body, timeout=TIMEOUT,
+                            headers={"Authorization": f"Bearer {config.XAI_API_KEY}"})
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"].strip()
+
+
+async def _hedged(body: dict) -> str:
+    """Grok latency is spiky (usually 0.6 s, sometimes 5 s+). Race a second request after HEDGE."""
+    tasks = [asyncio.create_task(_post(body))]
+    try:
+        done, _ = await asyncio.wait(tasks, timeout=HEDGE)
+        if not done:
+            tasks.append(asyncio.create_task(_post(body)))
+        deadline = asyncio.get_running_loop().time() + TIMEOUT
+        pending = set(tasks)
+        err = None
+        while pending:
+            done, pending = await asyncio.wait(pending, timeout=max(0.01, deadline - asyncio.get_running_loop().time()),
+                                               return_when=asyncio.FIRST_COMPLETED)
+            if not done:
+                raise asyncio.TimeoutError
+            for t in done:
+                if t.exception() is None:
+                    return t.result()
+                err = t.exception()
+        raise err
+    finally:
+        for t in tasks:
+            t.cancel()
 
 
 async def warmup():

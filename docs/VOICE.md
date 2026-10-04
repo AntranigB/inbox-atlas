@@ -19,8 +19,10 @@ curl -F audio=@clip.wav http://localhost:8765/api/stt     # raw Grok STT with wo
   ("by five, no, six" -> "by six"), fixes punctuation, and adds nothing. `style` is `plain`,
   `email`, `message` or `query`. Short utterances that are already clean skip the LLM.
 - Env knobs: `GROK_CLEANUP_MODEL` (default `GROK_MODEL`; `grok-4-fast-non-reasoning` is about as
-  fast), `CLEANUP_TIMEOUT` seconds (default 5, falls back to the raw transcript). The server makes
-  one warmup call at startup because Grok's first call can take several seconds.
+  fast), `CLEANUP_TIMEOUT` seconds (default 6, falls back to the raw transcript), `CLEANUP_HEDGE`
+  seconds (default 1.5). Grok chat latency is usually 0.6 s but sometimes spikes to 5 s, so if the
+  first request is slower than the hedge a second identical one is raced against it. The server
+  also makes one warmup call at startup.
 
 ## 2. Browser (`web/voice.js`)
 
