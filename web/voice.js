@@ -284,10 +284,24 @@
         caption("bot", ev.transcript || talk.botText || "", true); talk.botText = ""; break;
       case "response.function_call_arguments.done": setStatus("Searching your inbox..."); break;
       case "atlas.hits":
-        window.dispatchEvent(new CustomEvent("atlas:hits", { detail: { hits: ev.hits || [], region: ev.region || null, args: ev.args || {}, tool: ev.tool } }));
+        window.dispatchEvent(new CustomEvent("atlas:hits", { detail: { hits: ev.hits || [], region: ev.region || null, args: ev.args || {}, tool: ev.tool, full: ev.full || null } }));
+        showOnMap(ev);
         setStatus(`${(ev.hits || []).length} matches`); break;
       case "response.done": if (!talk.sources.size) setStatus("Listening"); break;
     }
+  }
+
+  // Light up the search-agent UI (window.atlas from app.js) with the voice agent's search.
+  function showOnMap(ev) {
+    const A = window.atlas;
+    if (!A || typeof A.applyResult !== "function") return;
+    const args = ev.args || {};
+    const query = args.query || (args.positive || []).join(", ");
+    const view = Object.assign({ hits: ev.hits || [], region: ev.region || null }, ev.full || {}, { mode: "region", query });
+    try {
+      if (typeof A.setQuery === "function" && query) A.setQuery(query);
+      A.applyResult(view);
+    } catch (e) { console.warn("atlas.applyResult failed", e); }
   }
 
   async function startTalk() {

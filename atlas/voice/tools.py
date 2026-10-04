@@ -83,27 +83,57 @@ def load_tools():
         return STUB_SCHEMAS, stub_run_tool
 
 
+def _jsonable(o):
+    """Round trip through JSON so numpy scalars/arrays become plain values."""
+    def default(x):
+        if hasattr(x, "tolist"):
+            return x.tolist()
+        if hasattr(x, "item"):
+            return x.item()
+        return str(x)
+    return json.loads(json.dumps(o, default=default))
+
+
+def _accepts_raw(fn) -> bool:
+    try:
+        return "raw" in inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+
+
 async def call_tool(run_tool, name: str, arguments: str | dict) -> dict:
+    """Run a tool. If run_tool supports raw=True, the private `_full` payload (the UI's search
+    view) is kept under `_full`; every other underscore key is dropped."""
     try:
         args = json.loads(arguments) if isinstance(arguments, str) else (arguments or {})
     except json.JSONDecodeError:
         args = {}
+    kw = {"raw": True} if _accepts_raw(run_tool) else {}
     try:
         if inspect.iscoroutinefunction(run_tool):
-            out = await run_tool(name, args)
+            out = await run_tool(name, args, **kw)
         else:
-            out = await asyncio.to_thread(run_tool, name, args)
+            out = await asyncio.to_thread(run_tool, name, args, **kw)
             if inspect.isawaitable(out):
                 out = await out
     except Exception as e:  # tool errors go back to the model, not up the socket
         log.exception("tool %s failed", name)
         out = {"error": str(e)[:300]}
-    return out if isinstance(out, dict) else {"result": out}
+    if not isinstance(out, dict):
+        return {"result": _jsonable(out)}
+    full = out.get("_full")
+    out = _jsonable({k: v for k, v in out.items() if not k.startswith("_")})
+    if full is not None:
+        try:
+            out["_full"] = _jsonable(full)
+        except (TypeError, ValueError):
+            pass
+    return out
 
 
 def compact_output(result: dict, limit: int = 6000) -> str:
     """JSON for the model, trimmed so a big hit list does not blow up the turn."""
-    r = dict(result)
+    r = {k: v for k, v in result.items() if not k.startswith("_")}
     if isinstance(r.get("hits"), list):
         r["hits"] = [{k: v for k, v in h.items() if k in ("id", "from", "date", "subject", "snippet", "prob")}
                      for h in r["hits"][:8]]

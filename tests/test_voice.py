@@ -126,6 +126,20 @@ def test_call_tool_handles_errors_and_async():
     assert asyncio.run(vtools.call_tool(aok, "x", '{"a":1}'))["args"] == {"a": 1}
 
 
+def test_call_tool_keeps_full_payload_for_ui():
+    import numpy as np
+
+    def run_tool(name, args=None, raw=False):
+        out = {"hits": [{"id": "1", "z": np.float32(2.5)}], "_secret": 1,
+               "_full": {"hits": [{"id": "1", "member": True}], "facet_points": np.array([1, 2])}}
+        return out if raw else {k: v for k, v in out.items() if not k.startswith("_")}
+
+    out = asyncio.run(vtools.call_tool(run_tool, "search_region", {}))
+    assert out["hits"][0]["z"] == 2.5 and "_secret" not in out
+    assert out["_full"]["facet_points"] == [1, 2]
+    assert "_full" not in json.loads(vtools.compact_output(out))
+
+
 class FakeUpstream:
     """Scripted Grok realtime: asks for one tool call, then answers with audio after the output."""
 
