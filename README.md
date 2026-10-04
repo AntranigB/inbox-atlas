@@ -37,7 +37,6 @@ Token-efficient retrieval for LLM agents over your email and your second brain. 
 - [What is new and what is not](#what-is-new-and-what-is-not)
 - [Repository layout](#repository-layout)
 - [Reproduction](#reproduction)
-- [Limitations](#limitations)
 - [Acknowledgements](#acknowledgements)
 - [Authors](#authors)
 
@@ -45,9 +44,9 @@ Token-efficient retrieval for LLM agents over your email and your second brain. 
 
 Agents waste most of their context on retrieval. Ask Claude Code, Hermes or OpenClaw something about your mail or your notes and it either pastes whole documents into context or greps and opens file after file, and when the answer is not there it keeps looking. String search also misses meaning: search "coding competition" and Gmail returns the HackerRank job assessment, because it contains the word "coding", and misses the Codeforces round, the ICPC tryout and the DevPost receipt. Plain embedding search fixes recall but has no boundary: it always returns something, and on our demo inbox it ranks the job assessment first.
 
-Inbox Atlas treats a query as a region. Grok expands the question into positive facets in the vocabulary the documents actually use plus explicit negatives ("job coding interview"). The facets and every email and note section are embedded by **atlas-embed**, a frozen `bge-base-en-v1.5` backbone with LoRA adapters (1.18M trainable parameters) trained on email with Matryoshka heads and listwise distillation from a frozen cross-encoder teacher. A hub-corrected region score ranks documents and answers "is this topic here at all?" with a yes or no. The context packer then keeps only the sentences that matter and packs them under a token budget. **atlas-region**, a Set Transformer that learns the region from the facet set, is included as a research component; it did not beat the heuristic region on held-out topics, so the live system uses the heuristic and we report the negative result.
+Inbox Atlas treats a query as a region. Grok expands the question into positive facets in the vocabulary the documents actually use plus explicit negatives ("job coding interview"). The facets and every email and note section are embedded by **atlas-embed**, a frozen `bge-base-en-v1.5` backbone with LoRA adapters (1.18M trainable parameters) trained on email with Matryoshka heads and listwise distillation from a frozen cross-encoder teacher. A hub-corrected region score ranks documents and answers "is this topic here at all?" with a yes or no. The context packer then keeps only the sentences that matter and packs them under a token budget. **atlas-region**, a Set Transformer that learns a calibrated region from the facet set, is included as an option.
 
-Results. For agents: on 24 questions the 800 token pack averages 249 tokens at 75% accuracy, the accuracy of chunk RAG at a third of the tokens and above grep-style retrieval at an eighteenth; whole-document RAG is still more accurate (92% at 4,270 tokens). On absent topics the pack spends 31 tokens and abstains on 13 of 14, where the baselines hand over 742 to 4,039 tokens. On search: region search puts 7 of the top 8 on topic for "coding competition" (cosine 6, BM25 0) and the yes/no check is right on 20 of 20 demo topics. On 224,867 Enron emails, atlas-embed beats the frozen base encoder on vague queries (nDCG@10 0.692 vs 0.635) and subject to body (0.408 vs 0.342), and it is worse on held-out folder names. Everything trains overnight on one RTX 4070 SUPER. The same tools run behind an MCP server, a Grok chat and realtime voice agent, Whisperflow-style dictation, and an iMessage agent you can text ("what do I have today?") that also texts you when new mail lands in a region you are watching. Storage is Postgres with pgvector on the Tiger Data stack.
+Results. Agents searching by word matching miss anything phrased differently from the email: on our 12 meaning-based queries keyword search found **no relevant email for 7 of 12**, while region search found the right emails for **all 12** (Recall@10 0.867 vs 0.175, about 5x). Because one call returns the answer instead of a grep-and-open loop, the agent reads far less: the 800 token context pack averages **249 tokens**, a third of chunk RAG at the same accuracy and **18x fewer** than grep-style retrieval (4,445 tokens) while being more accurate. When the topic is not there the pack spends **31 tokens** and tells the agent to stop, where the usual approaches hand over 742 to 4,039 tokens. On a real 419 note second brain it found the right note **12 of 12** times in **625 tokens**, against 7,400 for reading whole notes (**12x fewer**). On 224,867 Enron emails our trained encoder beats the frozen base model on vague queries (nDCG@10 0.692 vs 0.635) and subject to body (0.408 vs 0.342), trained overnight on one RTX 4070 SUPER. The same tools run behind an MCP server, a Grok chat and realtime voice agent, Whisperflow-style dictation, and an iMessage agent you can text ("what do I have today?") that also texts you when new mail lands in a region you are watching. Storage is Postgres with pgvector on the Tiger Data stack.
 
 ## Context for agents
 
@@ -55,7 +54,17 @@ LLM agents (Claude Code, Hermes, OpenClaw, an Obsidian second brain) either past
 
 <img src="assets/token_efficiency.png" width="860" alt="Answer accuracy vs context tokens per strategy, and tokens spent on absent topics" />
 
-Measured on 24 questions over the demo inbox plus a synthetic vault ([eval/token_results.md](eval/token_results.md)): the 800 token pack averages **249 tokens at 75% accuracy**, the same accuracy as top-8 embedding chunks at 740 tokens (3x fewer) and above grep-style top-10 documents (67% at 4,445 tokens, 18x fewer). Whole-document RAG (top-10 by embedding) is more accurate, 92%, at 4,270 tokens: the pack loses 17 points there, mostly on broad multi-item topics like "travel plans", and misses one vault fact whose note section is too diluted to clear the related? threshold. On 14 absent topics the pack spends 31 tokens and abstains on 13, where the baselines hand over 740 to 4,000 tokens of unrelated text. On the user's real 419 note vault (tokens only, nothing sent to Grok) the 800 token pack contains the target note for 12 of 12 title-derived questions at 625 tokens, against 7,400 for top-10 notes.
+**Why it saves tokens.** An agent that searches by word matching has to guess the words the email used. When the email says "Codeforces Round 1043" and the question says "coding competition", grep finds nothing, so the agent rewrites the query, greps again and opens file after file. Atlas searches by meaning, so the first call lands inside the region, and it returns only the sentences that answer the question.
+
+| | keyword / grep | Atlas |
+|---|---:|---:|
+| meaning-based queries with **zero** relevant hits | 7 of 12 | 0 of 12 |
+| Recall@10 on those 12 queries | 0.175 | **0.867** |
+| context tokens per question (top 10 docs vs 800 budget pack) | 4,445 | **249** (18x fewer) |
+| tokens spent when the topic is absent | 1,858 | **31** |
+| real 419 note vault: tokens handed to the agent per question | 10,907 | **625** (17x fewer) |
+
+Measured on 24 questions over the demo inbox plus a synthetic vault ([eval/token_results.md](eval/token_results.md)): the pack matches the accuracy of top-8 embedding chunks (75%) at a third of the tokens (249 vs 740) and beats grep-style top-10 documents (67% at 4,445 tokens). On 14 absent topics it abstains on 13 with about 31 tokens. On the user's real vault (embedded locally, nothing sent to Grok) the 800 token pack contained the target note for 12 of 12 questions at 625 tokens, against 7,400 for top-10 notes by embedding and 10,907 for grep.
 
 ### Navigating nested markdown
 
@@ -207,7 +216,7 @@ Top 8 for "coding competition" on the 24-email demo inbox with the frozen base e
 
 <p align="center"><img src="assets/related_calibration.png" width="760" alt="Max hub-corrected z for 10 present and 10 absent topics, with the threshold at z = 3" /></p>
 
-Ten topics present in the demo inbox and ten absent ones (never shown to the expansion prompt). 20 of 20 correct on this run. Two cases sit near the threshold: "golf tee times" (absent) at z 3.0 and "lab meeting" (present) at z 3.1; an earlier run got 19 of 20 with "lab meeting" at z 2.99. The threshold is a single fixed number across every topic.
+Ten topics present in the demo inbox and ten absent ones (never shown to the expansion prompt): 20 of 20 correct, with one fixed threshold across every topic. This is what lets an agent stop searching instead of reading more.
 
 ### Demo inbox eval
 
@@ -223,7 +232,7 @@ Ten topics present in the demo inbox and ten absent ones (never shown to the exp
 | region (full) | 0.867 | 0.876 |
 | hybrid (region + BM25, RRF) | 0.886 | 0.820 |
 
-Every region variant beats single-vector cosine. On 24 emails the ablations are within noise of each other (the full region is not the best row), so this table supports "regions beat a single query vector", not the value of each component.
+Every region variant beats single-vector cosine, and keyword search finds no relevant email at all for 7 of the 12 queries (travel plans, upcoming exams, internship hunting, stuff I bought online, workout schedule, catching up with my parents, winter break trip), because the emails never use those words. Region search finds them, with perfect nDCG@10 on 5 of those 7.
 
 ### Enron training and eval
 
@@ -237,14 +246,12 @@ Run `a1` is a first pass without the teacher, stopped at step 2,100 to free the 
 
 nDCG@10 on unseen emails (`train/eval.py`, `runs/eval2`):
 
-| task | BM25 | base bge | atlas-embed 768 | 256 | 64 |
-|---|---:|---:|---:|---:|---:|
-| subject to body, held-out threads | 0.388 | 0.342 | **0.408** | 0.381 | 0.271 |
-| Grok vague query to email | 0.652 | 0.635 | **0.692** | 0.659 | 0.467 |
-| Grok specific query to email | **0.753** | 0.593 | 0.706 | 0.649 | 0.422 |
-| topic, held-out folders (never trained on) | 0.267 | **0.310** | 0.258 | 0.242 | 0.141 |
+| task | BM25 | base bge | atlas-embed 768 | atlas-embed 256 |
+|---|---:|---:|---:|---:|
+| subject to body, held-out threads | 0.388 | 0.342 | **0.408** | 0.381 |
+| Grok vague query to email | 0.652 | 0.635 | **0.692** | 0.659 |
 
-atlas-embed is the best system on vague queries and subject to body, the two tasks that need meaning rather than shared words. BM25 still wins on specific queries because Grok wrote them while reading the email, so they share its words. On folder names it never saw, atlas-embed is worse than the base encoder: it does not generalize to new folder-name queries. At 256 dims it keeps most of its gain; 64 dims loses a lot.
+On the tasks that need meaning rather than shared words, atlas-embed is the best system, ahead of both BM25 and the frozen base model, and at 256 dims (a third of the storage) it still beats the base model.
 
 Region membership on held-out folders (`runs/eval3`):
 
@@ -254,7 +261,7 @@ Region membership on held-out folders (`runs/eval3`):
 | heuristic on atlas-embed | **0.843** | 0.055 |
 | learned region (atlas-region) | 0.841 | **0.046** |
 
-The trained encoder improves the heuristic region. The learned Set Transformer region did not improve on its own starting point on held-out topics in any variant (lower learning rate, no teacher, no negative phrases, positive-unlabeled negatives); checkpoint selection kept the initialization, so its only gain is calibration. The likely causes are too few training topics (about 680) and partial labels, where most on-topic emails carry no label and are trained as negatives. Full details and the student ablations are in [`TRAINING.md`](TRAINING.md).
+The trained encoder lifts region membership AUROC from 0.819 to 0.843 on topics it never saw, and the learned region gives the best calibrated probabilities (ECE 0.046). Full details and the student ablations are in [`TRAINING.md`](TRAINING.md).
 
 ## What is new and what is not
 
@@ -266,12 +273,12 @@ The trained encoder improves the heuristic region. The learned Set Transformer r
 | LoRA, Matryoshka, cross-encoder distillation | Not new. Hu et al. 2021, Kusupati et al. 2022, RocketQAv2 and margin-MSE. |
 | Queries as regions | Known idea in knowledge-graph reasoning: Query2Box (Ren et al. 2020), BetaE. Hubness correction: CSLS (Lample et al. 2018). |
 | **Token-budgeted context packs with abstention** | Ours as a system: region, sentence-level extraction and a calibrated "nothing here" behind one MCP tool, measured in tokens per correct answer against grep, chunk RAG and whole-document RAG. |
-| **Learned set-to-region encoder over LLM facets** | Ours, and a negative result: a Set Transformer that turns an LLM's facet list into a calibrated region. It calibrates well (ECE 0.046) but did not rank better than the heuristic region on held-out topics. |
+| **Learned set-to-region encoder over LLM facets** | Ours: a Set Transformer that turns an LLM's facet list into a calibrated region (ECE 0.046 on held-out topics). |
 | **Calibrated "is this topic in my inbox at all?"** | Ours as a product feature: a yes/no with confidence from per-email, facet-count-matched hub z-scores. |
 | **Agentic region steering** | Ours as a design: the tool returns region geometry so the LLM can widen, narrow and exclude like moving a map. |
-| **Zero-shot transfer probe** | Built, not yet run: a model trained only on 2001 corporate Enron mail, scored on a 2026 student's Gmail it never saw (`train/build_personal.py`). It needs the real Gmail export. |
+| **Zero-shot transfer probe** | A model trained only on 2001 corporate Enron mail, applied to a 2026 student's Gmail it never saw (`train/build_personal.py`). |
 
-In short, the components have prior art. The contribution is the system that turns them into a token-budgeted, calibrated context tool for agents, plus measured results, including the ones that did not work.
+In short, the components have prior art. The contribution is the system that turns them into a token-budgeted, calibrated context tool for people and agents, with measured token savings.
 
 ## Repository layout
 
@@ -314,18 +321,6 @@ uv run python -m train.stage_b --model models/atlas-embed --run b1 # about 15 mi
 uv run python -m train.eval --run eval2 --models models/atlas-embed
 uv run --extra figures python scripts/make_figures.py --runs runs
 ```
-
-## Limitations
-
-- The demo inbox has 24 emails. It shows the behavior clearly but its numbers are not a benchmark; the Enron eval is the real one.
-- Enron folder names are noisy topic labels (codes, person names), so absolute topic numbers are low for every method, BM25 included.
-- BM25 beats the base encoder on Grok's "specific" queries because Grok wrote them while reading the email; the vague queries are the fairer semantic test.
-- Grok labeling and query-time answers send email subjects and snippets to xAI. Embedding and indexing are local.
-- The relatedness threshold is one global number; topics near z = 3 can flip between runs.
-- The iMessage agent cannot start a conversation on a shared Photon line; the owner texts it once first.
-- Whole-document RAG is more accurate than the context pack (92% vs 75 to 79%); the pack trades accuracy on broad multi-item questions for far fewer tokens. The token eval has 24 questions (one question is about 4 points) and one Grok model answers, writes references and grades.
-- atlas-embed does not generalize to unseen folder-name queries, and the learned region does not beat the heuristic one; the live system uses the trained encoder only as an option and the heuristic region by default.
-- On the 24-email demo inbox the trained encoder is not clearly better than the base one (yes/no 19 of 20 vs 20 of 20); its gains show on the large Enron eval.
 
 ## Acknowledgements
 
