@@ -128,8 +128,7 @@ Short version: **"RAG always returns k chunks. We return a decision."**
   wayfinding through a knowledge tree. Kleinberg's own work is navigation in networks and
   information spaces.
 - **Software.** Five subsystems working end to end: a trained encoder, region search with
-  calibrated abstention, an MCP server, Postgres with pgvector and TimescaleDB on the Tiger Data
-  stack, and voice plus iMessage frontends. One command (`atlas up`) runs it all; 92 tests.
+  calibrated abstention, an MCP server, Postgres with pgvector and TimescaleDB on Tiger Cloud, and voice plus iMessage frontends. One command (`atlas up`) runs it all; 92 tests.
 - **People's Choice.** Everyone has an inbox they can't search. Demo: text it "what do I have
   tomorrow?"
 - **Photon (Agents in iMessage).** Two-way: you text it questions, and it texts you first with
@@ -171,9 +170,9 @@ with no extra training, and it's why absent topics cost 31 tokens."
 speech to text and dictation cleanup, and powers the realtime voice agent."
 
 **Where does Tiger Data fit?**
-"Emails, embeddings with an HNSW index, chat history and a TimescaleDB hypertable that logs every
-query with its latency and tokens, all in Postgres on the Tiger Data stack. Moving to Tiger Cloud
-is one connection string."
+"It runs on Tiger Cloud: emails, embeddings with a pgvector HNSW index, chat history, and a
+TimescaleDB hypertable that logs every query with its latency and tokens. The search engine
+reads from it live."
 
 **Is it private?**
 "Gmail is read-only: nothing is deleted or even marked read, and raw messages are kept.
@@ -200,7 +199,6 @@ turn agent feedback into training pairs."
 | Say | Don't say | Why |
 |---|---|---|
 | "18x fewer tokens than grep" | "fewer searches" with a number | we measured tokens, not search counts |
-| "built on the Tiger Data stack" | "runs on Tiger Cloud" | it runs locally in Docker unless you migrate |
 | "a third of chunk RAG at the same accuracy" | "more accurate than RAG" | whole-document RAG is the accuracy ceiling |
 | "in our own testing, Cursor CLI routed most efficiently" | Cursor benchmark numbers | the comparison was informal, outside this repo |
 | "on the demo inbox" | "on my real inbox" | the live demo uses the fictional demo inbox |
