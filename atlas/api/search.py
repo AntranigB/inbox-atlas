@@ -133,7 +133,7 @@ def api_encoders():
     return {"default": config.ENCODER, "available": available_encoders()}
 
 
-def warm_engine():  # server.py on_startup hook breaks on new FastAPI, so call this manually
+def on_startup():
     def warm():
         try:
             get_engine()
