@@ -1,0 +1,738 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inbox Atlas</title>
+<style>
+:root {
+  --ink: #1f2328;
+  --ink-2: #424a53;
+  --muted: #6e7781;
+  --line: #d0d7de;
+  --wash: #f3f5f7;
+  --paper: #ffffff;
+  --red: #b31b1b;
+  --red-soft: #f6e3e3;
+  --blue: #4c72b0;
+  --blue-soft: #e4ebf5;
+  --night: #1f2328;
+  --night-2: #2b3138;
+  --on-night: #f3f1ec;
+  --on-night-2: #a9b1ba;
+  --red-night: #f0625a;
+  --display: "Avenir Next Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --text: "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+  --serif: "Iowan Old Style", Charter, Georgia, serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: #0e1013; overflow: hidden; }
+body { font-family: var(--text); color: var(--ink); -webkit-font-smoothing: antialiased; }
+
+/* stage: a 1920x1080 canvas scaled to fit */
+.viewport { position: fixed; inset: 0; overflow: hidden; }
+.deck { position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px; transform-origin: center center; }
+.slide {
+  position: absolute; inset: 0; width: 1920px; height: 1080px; overflow: hidden;
+  background: var(--paper); color: var(--ink); padding: 96px 128px 120px;
+  opacity: 0; visibility: hidden; transition: opacity .35s ease, visibility 0s linear .35s;
+  --accent: var(--red); --accent-soft: var(--red-soft);
+}
+.slide.on { opacity: 1; visibility: visible; transition: opacity .35s ease, visibility 0s; }
+.deck.instant .slide { transition: none; }
+.slide.blue { --accent: var(--blue); --accent-soft: var(--blue-soft); }
+.slide.night { background: var(--night); color: var(--on-night); --accent: var(--red-night); }
+
+/* survey grid on light slides */
+.slide:not(.night)::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: radial-gradient(circle, #c9d1d9 1.6px, transparent 1.8px);
+  background-size: 48px 48px; background-position: 24px 24px; opacity: .45;
+}
+.slide > * { position: relative; }
+
+.foot {
+  position: absolute; left: 128px; right: 128px; bottom: 44px;
+  display: flex; justify-content: space-between; align-items: center;
+  font: 500 24px/1 var(--text); color: var(--muted);
+}
+.night .foot { color: var(--on-night-2); }
+.foot .mark { display: flex; align-items: center; gap: 14px; }
+.foot svg { width: 30px; height: 30px; }
+
+h1, h2 { font-family: var(--display); font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 88px; line-height: 1.0; max-width: 1664px; }
+h2.tight { font-size: 74px; }
+h2 .rule { display: block; width: 120px; height: 10px; background: var(--accent); margin-bottom: 36px; }
+.lede { font-size: 40px; line-height: 1.35; color: var(--ink-2); max-width: 1320px; margin: 28px 0 0; }
+.night .lede { color: var(--on-night-2); }
+.accent { color: var(--accent); }
+b, strong { font-weight: 700; }
+
+/* 1 title */
+.title-slide { padding: 0; }
+.title-slide .dotmap { position: absolute; inset: 0; }
+.title-slide .copy { position: absolute; left: 128px; top: 150px; width: 1150px; }
+.title-slide h1 { font-size: 220px; line-height: .9; letter-spacing: -0.02em; }
+.title-slide .line { font-family: var(--serif); font-size: 50px; line-height: 1.3; margin: 56px 0 0; color: var(--on-night); max-width: 1000px; }
+.title-slide .line em { font-style: normal; color: var(--red-night); }
+.title-slide .team { position: absolute; left: 128px; bottom: 120px; font-size: 32px; line-height: 1.5; color: var(--on-night-2); }
+.title-slide .team b { color: var(--on-night); font-weight: 600; }
+.title-slide .foot { bottom: 52px; }
+
+/* 2 problem */
+.problem { display: grid; grid-template-columns: 1fr 1fr; gap: 88px; margin-top: 60px; }
+.searchbox { display: flex; align-items: center; gap: 22px; border: 3px solid var(--ink); border-radius: 18px; padding: 22px 30px; font-size: 42px; font-weight: 600; background: var(--paper); }
+.searchbox svg { width: 40px; height: 40px; flex: none; }
+.col-label { font-size: 30px; color: var(--muted); margin: 30px 0 12px; font-weight: 500; }
+.mail { font-size: 30px; line-height: 1.25; padding: 12px 24px; border-left: 8px solid var(--line); background: var(--paper); margin-bottom: 12px; }
+.mail small { display: block; font-size: 22px; color: var(--muted); font-weight: 500; }
+.mail.wrong { border-left-color: var(--accent); background: var(--accent-soft); }
+.mail.wrong .tag { float: right; font-size: 24px; font-weight: 700; color: var(--accent); }
+.mail.missed { color: var(--muted); border-left-style: dashed; }
+.agentloop { font-size: 34px; line-height: 1.4; }
+.agentloop ol { list-style: none; margin: 0; padding: 0; counter-reset: s; }
+.agentloop li { display: flex; gap: 22px; align-items: baseline; padding: 14px 0; border-bottom: 2px solid var(--line); }
+.agentloop li code { font: 600 30px/1.3 "SF Mono", Menlo, monospace; color: var(--ink); }
+.agentloop li span { margin-left: auto; color: var(--muted); font-size: 26px; white-space: nowrap; }
+.agentloop .end { color: var(--accent); font-weight: 700; padding-top: 26px; font-size: 38px; }
+
+/* 3 big number */
+.bignum { display: grid; grid-template-columns: auto 1fr; gap: 90px; align-items: center; margin-top: 40px; }
+.bignum .n { font-family: var(--display); font-weight: 700; font-size: 560px; line-height: .8; color: var(--accent); letter-spacing: -0.03em; }
+.bignum .of { font: 700 80px/1 var(--display); margin-bottom: 30px; }
+.bignum .say { font-family: var(--serif); font-size: 64px; line-height: 1.2; }
+.bignum .say p { margin: 0 0 28px; }
+.bignum .say .quiet { font-family: var(--text); font-size: 36px; color: var(--ink-2); line-height: 1.4; }
+.chips { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 70px; }
+.chip { font-size: 28px; padding: 10px 22px; border-radius: 999px; border: 2px solid var(--line); background: var(--paper); color: var(--ink-2); }
+.chip.neg { border-style: dashed; color: var(--muted); }
+.chip.pos { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+/* 4 how it works */
+.flow { display: grid; grid-template-columns: 1fr 1.15fr 1.15fr 1.25fr; gap: 0; margin-top: 70px; align-items: stretch; }
+.step { padding: 0 34px; border-left: 3px solid var(--line); position: relative; }
+.step:first-child { padding-left: 0; border-left: 0; }
+.step h3 { font: 700 46px/1.05 var(--display); margin: 0 0 8px; }
+.step .sub { font-size: 26px; color: var(--muted); margin: 0 0 30px; line-height: 1.3; min-height: 68px; }
+.step .chip { font-size: 24px; padding: 6px 15px; }
+.step .chips { margin-top: 0; gap: 10px; }
+.q { font-family: var(--serif); font-size: 44px; line-height: 1.2; }
+.q::before { content: "\201C"; } .q::after { content: "\201D"; }
+.region svg { width: 100%; height: auto; display: block; }
+.verdict { display: inline-block; margin-top: 18px; font-weight: 700; font-size: 28px; color: var(--accent); border: 3px solid var(--accent); border-radius: 10px; padding: 6px 16px; white-space: nowrap; }
+.answer { font-size: 28px; line-height: 1.4; border-left: 6px solid var(--accent); padding: 10px 0 10px 22px; margin-bottom: 26px; }
+.answer.none { border-left-color: var(--muted); color: var(--ink-2); }
+.answer b.tok { display: block; font: 700 44px/1.1 var(--display); color: var(--accent); margin-top: 6px; }
+.answer.none b.tok { color: var(--ink); }
+.step .arrow { position: absolute; left: -22px; top: 6px; width: 40px; height: 40px; background: var(--paper); border-radius: 50%; display: grid; place-items: center; }
+.step .arrow svg { width: 28px; height: 28px; }
+
+/* 5 demo cue */
+.demo h2 { font-size: 150px; }
+.demo .plan { display: grid; grid-template-columns: repeat(3, 1fr); gap: 64px; margin-top: 110px; }
+.demo .plan > div { border-top: 6px solid var(--accent); padding-top: 30px; }
+.demo .plan .k { font: 700 38px/1 var(--display); color: var(--accent); }
+.demo .plan h3 { font: 700 68px/1.05 var(--display); margin: 16px 0 22px; }
+.demo .plan p { font-size: 38px; line-height: 1.45; color: var(--on-night-2); margin: 0; }
+.demo .plan p q { color: var(--on-night); font-family: var(--serif); quotes: "\201C" "\201D"; }
+
+/* 6 token bars */
+.bars { margin-top: 54px; }
+.bar-row { display: grid; grid-template-columns: 560px 1fr 300px; align-items: center; gap: 40px; padding: 22px 0; border-top: 2px solid var(--line); }
+.bar-row:last-child { border-bottom: 2px solid var(--line); }
+.bar-row .what { font-size: 34px; font-weight: 600; line-height: 1.15; }
+.bar-row .what small { display: block; font-size: 24px; color: var(--muted); font-weight: 500; margin-top: 6px; }
+.track { display: grid; grid-template-columns: 120px 1fr; row-gap: 10px; align-items: center; font-size: 24px; }
+.track .who { color: var(--muted); font-weight: 500; }
+.track .who.us { color: var(--accent); font-weight: 700; }
+.track .b { height: 34px; display: flex; align-items: center; gap: 14px; font-size: 28px; font-weight: 600; white-space: nowrap; }
+.track .b i { display: block; height: 100%; background: #a8b0b8; min-width: 4px; }
+.track .b.us i { background: var(--accent); }
+.track .b.us { font-weight: 700; }
+.bar-row .gain { font: 700 64px/1 var(--display); color: var(--accent); text-align: right; }
+
+/* 7 more than rag */
+.rag { width: 100%; border-collapse: collapse; margin-top: 44px; font-size: 29px; line-height: 1.3; }
+.rag th { text-align: left; font: 700 32px/1 var(--display); color: var(--muted); padding: 0 24px 18px 0; }
+.rag th.us { color: var(--accent); }
+.rag td { padding: 16px 24px 16px 0; border-top: 2px solid var(--line); vertical-align: top; }
+.rag tr:last-child td { border-bottom: 2px solid var(--line); }
+.rag td:first-child { font-weight: 700; width: 380px; }
+.rag td.them { color: var(--muted); width: 450px; }
+.rag td.num { width: 330px; }
+.rag td.num b { display: block; font: 700 46px/1 var(--display); color: var(--accent); }
+.rag td.num small { display: block; font-size: 22px; line-height: 1.25; color: var(--muted); margin-top: 6px; }
+
+/* 8 agents */
+.agents { display: grid; grid-template-columns: 1.35fr 1fr; gap: 80px; margin-top: 56px; }
+.harness { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 30px; }
+.harness span { font-size: 30px; font-weight: 600; padding: 10px 24px; border-radius: 12px; background: var(--accent-soft); color: var(--ink); }
+.ask { font-family: var(--serif); font-size: 38px; line-height: 1.25; margin: 0 0 24px; }
+.tree { font-size: 31px; line-height: 1.25; }
+.tree .lvl { display: flex; align-items: center; gap: 16px; padding: 10px 0; }
+.tree .lvl svg { width: 34px; height: 34px; flex: none; }
+.tree .l1 { padding-left: 0; } .tree .l2 { padding-left: 48px; } .tree .l3 { padding-left: 96px; } .tree .l4 { padding-left: 144px; }
+.tree .dim { color: var(--muted); }
+.tree .hit { font-weight: 700; color: var(--accent); }
+.tree .line { margin: 10px 0 0 144px; padding: 16px 24px; background: var(--accent-soft); border-left: 6px solid var(--accent); font-family: var(--serif); font-size: 32px; }
+.costs { display: flex; flex-direction: column; gap: 46px; }
+.cost { border-top: 6px solid var(--accent); padding-top: 22px; }
+.cost.none { border-top-color: var(--ink); }
+.cost .t { font: 700 150px/0.9 var(--display); color: var(--accent); }
+.cost.none .t { color: var(--ink); }
+.cost .t small { font-size: 48px; margin-left: 10px; }
+.cost p { font-size: 30px; line-height: 1.35; margin: 12px 0 0; color: var(--ink-2); }
+
+/* 9 people */
+.people { display: grid; grid-template-columns: 1.55fr 1fr; gap: 64px; margin-top: 56px; align-items: start; }
+.shot { width: 100%; border-radius: 16px; box-shadow: 0 2px 0 var(--line), 0 30px 60px -30px rgba(31,35,40,.55); display: block; }
+.ways { display: flex; flex-direction: column; gap: 26px; }
+.way h3 { font: 700 44px/1.05 var(--display); margin: 0 0 8px; }
+.way p { font-size: 28px; line-height: 1.4; margin: 0; color: var(--ink-2); }
+.imsg { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.bub { max-width: 88%; font-size: 26px; line-height: 1.3; padding: 12px 20px; border-radius: 26px; }
+.bub.me { align-self: flex-end; background: #2f7cf6; color: #fff; border-bottom-right-radius: 8px; }
+.bub.it { align-self: flex-start; background: #e9e9eb; color: #111; border-bottom-left-radius: 8px; }
+
+/* 10 model */
+.model { display: grid; grid-template-columns: 1.5fr 1fr; gap: 60px; margin-top: 60px; align-items: start; }
+.model img { width: 100%; display: block; background: #fff; border: 2px solid var(--line); border-radius: 12px; padding: 14px; }
+.facts { display: grid; grid-template-columns: 1fr 1fr; gap: 30px 34px; }
+.fact b { display: block; font: 700 60px/1 var(--display); color: var(--accent); }
+.fact span { display: block; font-size: 25px; line-height: 1.3; color: var(--ink-2); margin-top: 6px; }
+.fact.wide { grid-column: 1 / -1; border-top: 3px solid var(--line); padding-top: 24px; }
+.fact.wide b { font-size: 76px; }
+
+/* 11 stack */
+.stack { margin-top: 56px; }
+.stack .row { display: grid; grid-template-columns: 380px 1fr; gap: 50px; padding: 26px 0; border-top: 2px solid var(--line); align-items: baseline; }
+.stack .row:last-child { border-bottom: 2px solid var(--line); }
+.stack .row h3 { font: 700 52px/1 var(--display); margin: 0; }
+.stack .row p { font-size: 33px; line-height: 1.4; margin: 0; color: var(--ink-2); }
+.stack .row.cursor p { font-family: var(--serif); color: var(--ink); }
+
+/* 12 close */
+.close-slide { padding: 0; }
+.close-slide .dotmap { position: absolute; inset: 0; opacity: .8; }
+.close-slide blockquote { position: absolute; left: 128px; top: 170px; width: 1450px; margin: 0; font-family: var(--serif); font-size: 84px; line-height: 1.18; color: var(--on-night); }
+.close-slide blockquote span { color: var(--red-night); }
+.close-slide .links { position: absolute; left: 128px; bottom: 130px; font-size: 34px; line-height: 1.6; color: var(--on-night-2); }
+.close-slide .links b { color: var(--on-night); font-weight: 600; }
+.close-slide .foot { bottom: 52px; }
+
+/* chrome: progress, notes */
+.progress { position: fixed; left: 0; top: 0; height: 5px; background: var(--red-night); width: 0; transition: width .3s ease; z-index: 5; }
+.notes { display: none; }
+.notes-panel {
+  position: fixed; left: 0; right: 0; bottom: 0; max-height: 38vh; overflow: auto; z-index: 6;
+  background: rgba(20,23,27,.94); color: #eef0f2; font: 18px/1.5 var(--text); padding: 18px 28px 22px;
+  border-top: 3px solid var(--red-night);
+}
+.notes-panel p { margin: 0 0 8px; } .notes-panel b { color: #fff; }
+.notes-panel .hint { color: #8b949e; font-size: 14px; margin-bottom: 8px; }
+.help { position: fixed; right: 14px; bottom: 10px; z-index: 4; color: #6e7781; font: 13px var(--text); opacity: 0; transition: opacity .3s; }
+body:hover .help { opacity: .8; }
+
+/* presenter view */
+body.presenter { background: #14171b; color: #eef0f2; overflow: hidden; }
+.pv { position: fixed; inset: 0; display: grid; grid-template-columns: 1.6fr 1fr; grid-template-rows: auto 1fr auto; gap: 18px; padding: 18px; }
+.pv .bar { grid-column: 1 / -1; display: flex; align-items: center; gap: 28px; font: 600 20px var(--text); }
+.pv .timer { font: 700 44px/1 var(--display); letter-spacing: .02em; }
+.pv .bar button { font: 600 16px var(--text); background: #2b3138; color: #eef0f2; border: 1px solid #444c56; border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+.pv .bar button:focus-visible { outline: 3px solid var(--red-night); }
+.pv .count { color: #a9b1ba; }
+.pv .cur, .pv .nxt { position: relative; overflow: hidden; background: #000; border-radius: 8px; }
+.pv .cur { grid-row: 2 / 4; }
+.pv .right { grid-row: 2 / 4; display: grid; grid-template-rows: auto 1fr; gap: 14px; min-height: 0; }
+.pv .nxt { aspect-ratio: 16 / 9; }
+.pv .lbl { font: 600 15px var(--text); color: #8b949e; margin-bottom: 6px; }
+.pv .pnotes { overflow: auto; font: 22px/1.5 var(--text); background: #1c2025; border-radius: 8px; padding: 18px 22px; min-height: 0; }
+.pv .pnotes p { margin: 0 0 12px; } .pv .pnotes b { color: #fff; }
+.pv .mini { position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px; transform-origin: center center; }
+.pv .mini .slide { transition: none; }
+
+@media print {
+  @page { size: 1920px 1080px; margin: 0; }
+  html, body { background: #fff; overflow: visible; height: auto; }
+  .viewport { position: static; display: block; }
+  .deck { position: static; transform: none !important; width: 1920px; height: auto; }
+  .slide { position: relative; opacity: 1 !important; visibility: visible !important; transition: none; break-after: page; page-break-after: always; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .slide:last-child { break-after: auto; page-break-after: auto; }
+  .progress, .notes-panel, .help { display: none !important; }
+}
+@media (prefers-reduced-motion: reduce) { .slide, .progress { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<div class="viewport"><div class="deck" id="deck">
+
+<!-- 1 -->
+<section class="slide night title-slide">
+  <div class="dotmap" data-seed="7" data-region="1520,600,250,200"></div>
+  <div class="copy">
+    <h1>Inbox Atlas</h1>
+    <p class="line">Your agents read 4,000 tokens to find one email. Inbox Atlas hands them the 250 that matter, or tells them nothing is there.</p>
+  </div>
+  <div class="team"><b>Avinash Senthil, Antranig Baghdassarian, Chelsea Lin, Emily Han</b><br>BigRed//Hacks 2026, Navigation</div>
+  <div class="foot"><span class="mark"></span><span class="num"></span></div>
+  <aside class="notes">
+    <p><b>"Your agents read 4,000 tokens to find one email. We hand them the 250 that matter."</b></p>
+    <p>Numbers behind it: 249 tokens per question vs 4,445 for grep style retrieval.</p>
+  </aside>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <h2><span class="rule"></span>Search matches words, not meaning.</h2>
+  <div class="problem">
+    <div>
+      <div class="searchbox"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><circle cx="10" cy="10" r="6.5"/><path d="M15 15l6 6"/></svg>coding competition</div>
+      <div class="col-label">Keyword search returns</div>
+      <div class="mail wrong"><span class="tag">a job test</span><small>HackerRank for Stripe</small>Online assessment for Software Engineering Intern</div>
+      <div class="col-label">and misses</div>
+      <div class="mail missed"><small>Codeforces</small>Codeforces Round 1043 (Div. 2) starts in 24 hours</div>
+      <div class="mail missed"><small>Cornell ACM</small>ICPC regional team tryouts this Saturday</div>
+      <div class="mail missed"><small>Devpost</small>Your DevPost submission was received</div>
+    </div>
+    <div class="agentloop">
+      <div class="col-label" style="margin-top:0">Your agent does the same, only more expensively</div>
+      <ol>
+        <li><code>grep "competition"</code><span>nothing</span></li>
+        <li><code>grep "contest"</code><span>opens 6 files</span></li>
+        <li><code>grep "hackathon"</code><span>opens 9 more</span></li>
+        <li><code>cat inbox/*.eml</code><span>pastes them all</span></li>
+      </ol>
+      <div class="end">And when the answer isn't there, it keeps looking.</div>
+    </div>
+  </div>
+  <div class="foot"><span class="mark"></span><span class="num"></span></div>
+  <aside class="notes">
+    <p><b>"This is how Gmail and most agents search today: by words."</b></p>
+    <p>"coding competition" returns the HackerRank job assessment because it says "coding", and misses the Codeforces round, the ICPC tryout and the DevPost receipt.</p>
+    <p>Claude Code, Cursor, Hermes, OpenClaw, every second brain setup searches the same way: grep, open file after file, and keep looking when nothing is there.</p>
+  </aside>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <div class="bignum">
+    <div class="n">7</div>
+    <div class="say">
+      <div class="of">of our 12 questions</div>
+      <p>Keyword search found nothing. Not wrong answers. Nothing.</p>
+      <p class="quiet">Inbox Atlas found the right emails for all 12: Recall@10 <b>0.867</b> vs <b>0.175</b>, about five times the recall.</p>
+    </div>
+  </div>
+  <div class="chips">
+    <span class="chip">travel plans</span><span class="chip">upcoming exams</span><span class="chip">internship hunting</span><span class="chip">stuff I bought online</span><span class="chip">workout schedule</span><span class="chip">catching up with my parents</span><span class="chip">winter break trip</span>
+  </div>
+  <div class="foot"><span class="mark"></span><span class="num"></span></div>
+  <aside class="notes">
+    <p><b>"Keyword search found nothing for 7 of our 12 questions. Not wrong answers. Nothing."</b></p>
+    <p>12 meaning based questions whose words do not appear in the target emails. Atlas: 0 of 12 empty. Recall@10 0.867 vs 0.175, five times the recall.</p>
+    <p>The seven on screen are the ones keyword search could not answer.</p>
+  </aside>
+</section>
+
+<!-- 4 -->
+<section class="slide blue">
+  <h2><span class="rule"></span>A question becomes a region.</h2>
+  <div class="flow">
+    <div class="step">
+      <h3>You ask</h3>
+      <p class="sub">typed, spoken, texted, or called by an agent</p>
+      <div class="q">coding competition</div>
+    </div>
+    <div class="step">
+      <div class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="#4c72b0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg></div>
+      <h3>Grok writes facets</h3>
+      <p class="sub">in the words emails actually use, plus what to exclude</p>
+      <div class="chips">
+        <span class="chip pos">Codeforces round</span><span class="chip pos">ICPC regional</span><span class="chip pos">LeetCode contest</span><span class="chip pos">Devpost submission</span><span class="chip pos">hackathon</span>
+        <span class="chip neg">not: job coding interview</span><span class="chip neg">not: take-home coding test</span>
+      </div>
+    </div>
+    <div class="step region">
+      <div class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="#4c72b0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg></div>
+      <h3>Region on the map</h3>
+      <p class="sub">our encoder scores every email and note against it</p>
+      <svg id="regionsvg" viewBox="0 0 360 250"></svg>
+      <div class="verdict">RELATED: YES</div>
+    </div>
+    <div class="step">
+      <div class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="#4c72b0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg></div>
+      <h3>A decision</h3>
+      <p class="sub">only the sentences that answer, under a token budget</p>
+      <div class="answer">Codeforces Round 1043 starts in 24 hours. ICPC tryouts this Saturday.<b class="tok">249 tokens</b></div>
+      <div class="answer none">or "nothing here", so the agent stops<b class="tok">31 tokens</b></div>
+    </div>
+  </div>
+  <div class="foot"><span class="mark"></span><span class="num"></span></div>
+  <aside class="notes">
+    <p><b>"Same question, searched by meaning."</b> <b>"Grok wrote these, including what to exclude. That's why the job test is gone."</b></p>
+    <p><b>"Your inbox as a map. The question becomes a region."</b> Our own encoder scores every email and note against the region; a calibrated yes or no answers "is it here at all?"</p>
+    <p>Then we hand back only the sentences that answer: 249 tokens on average, or 31 tokens for "nothing here".</p>
+  </aside>
+</section>
+
+<!-- 5 -->
+<section class="slide night demo">
+  <h2>Live demo</h2>
+  <div class="plan">
+    <div><span class="k">Browser</span><h3>Search by meaning</h3><p>Keyword vs region on <q>coding competition</q>, the facet chips, then <q>yacht maintenance</q>: NO.</p></div>
+    <div><span class="k">iMessage</span><h3>Just text it</h3><p><q>what do I have tomorrow?</q> then <q>did anyone ask me for money?</q></p></div>
+    <div><span class="k">Cursor</span><h3>One MCP tool</h3><p><q>what pulse widths did I use for the arm servos?</q> then <q>did I book a yacht charter?</q></p></div>
+  </div>
+  <div class="foot"><span class="mark"></span><span class="num"></span></div>
+  <aside class="notes">
+    <p>Browser, Keyword mode: <b>"This is how Gmail and most agents search today: by words."</b> Region mode: <b>"Same question, searched by meaning."</b></p>
+    <p>RELATED: YES, then yacht maintenance: <b>"And it knows when nothing is there."</b> NO. <b>"That one answer is where most of the token savings come from."</b> Map: <b>"Your inbox as a map. The question becomes a region."</b></p>
+    <p>Terminal A: <b>"For people, it's just a text."</b> Monday 10am lab meeting. Then "did anyone ask me for money?"</p>
+    <p>Terminal B, Cursor: <b>"For agents, it's one MCP tool."</b> About 210 tokens. <b>"It found the folder first, then the note, in a nested markdown vault."</b> Yacht charter: about 23 tokens. <b>"No grep loop. It just stops."</b></p>
+    <p>If anything fails, skip to the next slide and keep talking. Never debug in front of judges.</p>
+  </aside>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <h2><span class="rule"></span>18x fewer tokens than grep.</h2>
+  <div class="bars" id="bars"></div>
+  <div class="foot"><span class="mark"></span><span class="num"></span></div>
+  <aside class="notes">
+    <p><b>"Seven of twelve questions: keyword found nothing. We found all twelve. 18x fewer tokens than grep, 60x fewer when the topic isn't there."</b></p>
+    <p>249 vs 4,445 tokens per question. A third of chunk RAG at the same 75% accuracy (249 vs 740). 31 tokens on absent topics vs 1,858 grep, abstains on 13 of 14. Real 419 note vault: right note 12 of 12 at 625 tokens vs 10,907.</p>
+  </aside>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <h2 class="tight"><span class="rule"></span>RAG always returns k chunks. We return a decision.</h2>
+  <table class="rag">
+    <thead><tr><th>What changes</th><th>Standard RAG</th><th class="us">Inbox Atlas</th><th>Measured</th></tr></thead>
+    <tbody>
+      <tr><td>Knows when nothing is there</td><td class="them">Always returns k chunks, even for topics that do not exist</td><td>Calibrated yes or no; abstains and says stop searching</td><td class="num"><b>31 vs 742</b><small>tokens on absent topics</small></td></tr>
+      <tr><td>A question is a region</td><td class="them">One query vector; the job test ranks first</td><td>Grok facets plus exclusions push the job test out</td><td class="num"><b>7 vs 6</b><small>of top 8 on topic</small></td></tr>
+      <tr><td>Sentences under a budget</td><td class="them">Pastes 8 whole chunks</td><td>Keeps only the sentences that answer</td><td class="num"><b>249 vs 740</b><small>tokens at the same 75% accuracy</small></td></tr>
+      <tr><td>Folders first, then notes</td><td class="them">Flat list of chunks across the vault</td><td>Finds the folder, then the note, then the line</td><td class="num"><b>210</b><small>tokens to the exact line</small></td></tr>
+      <tr><td>Encoder trained for mail</td><td class="them">Off the shelf embeddings</td><td>Frozen bge + LoRA, distilled from a frozen teacher</td><td class="num"><b>0.692 vs 0.635</b><small>nDCG@10, vague queries</small></td></tr>
+    </tbody>
+  </table>
+  <div class="foot"><span class="mark"></span><span class="num"></span></div>
+  <aside class="notes">
+    <p><b>"And it's more than RAG: RAG always returns k chunks. We return a decision, sentences instead of chunks, and folders before notes."</b></p>
+    <p>Absent topics 31 tokens vs 742 for chunk RAG. Same 75% accuracy at 249 vs 740 tokens. Folder, note and exact line in 210 tokens. Vague queries nDCG@10 0.692 vs 0.635.</p>
+  </aside>
+</section>
+
+<!-- 8 -->
+<section class="slide blue">
+  <h2><span class="rule"></span>For agents, it's one MCP tool.</h2>
+  <div class="harness"><span>Cursor</span><span>Claude Code</span><span>Hermes</span><span>OpenClaw</span><span>any second brain</span></div>
+  <div class="agents">
+    <div>
+      <p class="ask" style="margin-top:44px">"what pulse widths did I use for the arm servos?"</p>
+      <div class="tree">
+        <div class="lvl l1 dim"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h7l2 2h9v11H3z"/></svg>projects/</div>
+        <div class="lvl l2 dim"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h7l2 2h9v11H3z"/></svg>robotics/</div>
+        <div class="lvl l3 hit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M3 6h7l2 2h9v11H3z"/></svg>arm/</div>
+        <div class="lvl l4 hit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/></svg>Servo calibration.md#pulse-widths</div>
+        <div class="line">Elbow servo: 610 to 2380 microseconds.</div>
+      </div>
+    </div>
+    <div class="costs">
+      <div class="cost"><div class="t">210<small>tokens</small></div><p>Folder first, then the note, then the exact line, in a nested markdown vault.</p></div>
+      <div class="cost none"><div class="t">23<small>tokens</small></div><p>"did I book a yacht charter?" Nothing here. No grep loop. It just stops.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span class="mark"></span><span class="num"></span></div>
+  <aside class="notes">
+    <p><b>"For agents, it's one MCP tool."</b> atlas_context for an answer pack, atlas_points_of_interest for folders in a vault. Works in Cursor, Claude Code, Hermes and OpenClaw.</p>
+    <p><b>"It found the folder first, then the note, in a nested markdown vault. That's how it generalizes to any second brain."</b> About 210 tokens.</p>
+    <p>Yacht charter: about 23 tokens. <b>"No grep loop. It just stops."</b></p>
+  </aside>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <h2><span class="rule"></span>For people: search it, say it, text it.</h2>
+  <div class="people">
+    <img class="shot" src="img/ui.png" alt="Inbox Atlas web search: coding competition becomes Grok facets, RELATED: YES, ranked results and a glowing region on the inbox map">
+    <div class="ways">
+      <div class="way"><h3>Search with the map</h3><p>Facets you can edit, a yes or no, and the region glowing on your inbox.</p></div>
+      <div class="way"><h3>Talk or dictate</h3><p>Grok realtime voice, and hold to dictate anywhere with the "um, no wait" cleaned out.</p></div>
+      <div class="way"><h3>Text it on iMessage</h3><p>Two-way on Photon: a morning brief, and alerts when mail lands in a topic you watch.</p>
+        <div class="imsg"><span class="bub me">what do I have tomorrow?</span><span class="bub it">Monday 10am: lab meeting with Priya.</span><span class="bub me">watch internships</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span class="mark"></span><span class="num"></span></div>
+  <aside class="notes">
+    <p><b>"For people, it's just a text."</b></p>
+    <p>Search it on the web with the map, talk to it with Grok voice, dictate anywhere Whisperflow style, or text it on iMessage through Photon: "what do I have tomorrow?" It texts you first too, with a morning brief and alerts when mail lands in a topic you're watching.</p>
+  </aside>
+</section>
+
+<!-- 10 -->
+<section class="slide">
+  <h2><span class="rule"></span>Our own encoder, trained overnight.</h2>
+  <div class="model">
+    <img src="img/architecture.png" alt="atlas-embed: frozen bge-base backbone with LoRA adapters, Matryoshka heads and a frozen cross-encoder teacher; atlas-region Set Transformer">
+    <div class="facts">
+      <div class="fact"><b>1.18M</b><span>trainable LoRA parameters on a frozen bge-base backbone</span></div>
+      <div class="fact"><b>Frozen</b><span>cross-encoder teacher, Matryoshka heads at 768, 256, 64</span></div>
+      <div class="fact"><b>224,867</b><span>Enron emails</span></div>
+      <div class="fact"><b>19,980</b><span>Grok labels</span></div>
+      <div class="fact"><b>491k</b><span>teacher scores</span></div>
+      <div class="fact"><b>1 GPU</b><span>RTX 4070 SUPER, overnight</span></div>
+      <div class="fact wide"><b>0.692 vs 0.635</b><span>nDCG@10 on vague queries, unseen emails, vs the frozen base model</span></div>
+    </div>
+  </div>
+  <div class="foot"><span class="mark"></span><span class="num"></span></div>
+  <aside class="notes">
+    <p><b>"Under it: our own encoder, frozen backbone, LoRA, a frozen teacher, trained overnight on a quarter million emails on one GPU."</b></p>
+    <p>atlas-embed: frozen bge-base with 1.18 million trainable LoRA parameters, Matryoshka heads so it also works at 256 dimensions, listwise distillation from a frozen cross-encoder teacher. 224,867 Enron emails, 19,980 Grok labels, 491 thousand teacher scores, one RTX 4070 SUPER. Vague queries 0.692 vs 0.635.</p>
+  </aside>
+</section>
+
+<!-- 11 -->
+<section class="slide blue">
+  <h2><span class="rule"></span>Built on</h2>
+  <div class="stack">
+    <div class="row"><h3>Grok</h3><p>Facet writing, the tool-calling agent, speech to text and the realtime voice agent.</p></div>
+    <div class="row"><h3>Tiger Cloud</h3><p>Postgres with a pgvector HNSW index, a TimescaleDB hypertable logging every query, and chat history.</p></div>
+    <div class="row"><h3>Photon Spectrum</h3><p>The two-way iMessage agent: answers, morning brief and watch alerts.</p></div>
+    <div class="row"><h3>MCP</h3><p>One server for Cursor, Claude Code, Hermes and OpenClaw, over stdio or HTTP.</p></div>
+    <div class="row cursor"><h3>Cursor CLI</h3><p>Built and routed with it. In our own testing outside this repo, Cursor CLI was the most token-efficient at routing compared with Claude Code, Codex and Grok.</p></div>
+  </div>
+  <div class="foot"><span class="mark"></span><span class="num"></span></div>
+  <aside class="notes">
+    <p>Grok writes the facets in the vocabulary emails actually use, runs the tool-calling agent, does speech to text and dictation cleanup, and powers the realtime voice agent.</p>
+    <p>Tiger Cloud: emails, embeddings with a pgvector HNSW index, chat history, and a TimescaleDB hypertable that logs every query with its latency and tokens.</p>
+    <p>Photon Spectrum for iMessage. MCP for every agent harness.</p>
+    <p>Say it exactly: "In our own testing outside this repo, Cursor CLI was the most token-efficient at routing compared with Claude Code, Codex and Grok." No numbers.</p>
+  </aside>
+</section>
+
+<!-- 12 -->
+<section class="slide night close-slide">
+  <div class="dotmap" data-seed="21" data-region="1540,700,250,190"></div>
+  <blockquote>Navigation used to mean maps.<br><span>Now it also means navigating what we and our agents know.</span></blockquote>
+  <div class="links"><b>github.com/xerneas3318/inbox-atlas</b><br>Avinash Senthil, Antranig Baghdassarian, Chelsea Lin, Emily Han</div>
+  <div class="foot"><span class="mark"></span><span class="num"></span></div>
+  <aside class="notes">
+    <p><b>"Navigation for the next hundred years means navigating what we and our agents know."</b></p>
+    <p>Inbox Atlas is a map of your information that people and LLMs can both use, at a fraction of the tokens. Then take questions; the "isn't this just RAG" answer is in PITCH.md section 6.</p>
+  </aside>
+</section>
+
+</div></div>
+<div class="notes-panel" id="notesPanel" hidden></div>
+<div class="help">arrows to move, N notes, P presenter, F fullscreen</div>
+
+<script>
+(function () {
+  "use strict";
+  var COMPASS = '<svg viewBox="0 0 512 512"><g fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="256" cy="256" r="160" stroke-width="28"/><circle cx="256" cy="256" r="96" stroke-width="16" stroke-dasharray="22 22"/><path d="M256 70v90M256 352v90M70 256h90M352 256h90" stroke-width="28"/></g><circle cx="256" cy="256" r="34" fill="#b31b1b"/></svg>';
+  var deck = document.getElementById("deck");
+  var slides = Array.prototype.slice.call(deck.querySelectorAll(".slide"));
+  var total = slides.length;
+
+  function rng(seed) { var s = seed >>> 0; return function () { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+
+  // decorate every slide: footer mark and number
+  slides.forEach(function (s, i) {
+    var m = s.querySelector(".foot .mark"); if (m) m.innerHTML = COMPASS + "<span>Inbox Atlas</span>";
+    var n = s.querySelector(".foot .num"); if (n) n.textContent = (i + 1) + " / " + total;
+  });
+
+  // dot maps: clustered points with one glowing region (title and close)
+  Array.prototype.forEach.call(document.querySelectorAll(".dotmap"), function (el) {
+    var r = rng(+el.dataset.seed), reg = el.dataset.region.split(",").map(Number);
+    var W = 1920, H = 1080, out = [];
+    var centers = [[1300, 180], [1720, 260], [1300, 960], [1760, 980], [1820, 620], [reg[0], reg[1]]];
+    centers.forEach(function (c, ci) {
+      var n = ci === centers.length - 1 ? 46 : 30;
+      for (var k = 0; k < n; k++) {
+        var a = r() * Math.PI * 2, d = Math.sqrt(r()) * (ci === centers.length - 1 ? reg[2] * .75 : 170);
+        var x = c[0] + Math.cos(a) * d * 1.25, y = c[1] + Math.sin(a) * d * .8;
+        if (x < 40 || x > W - 40 || y < 40 || y > H - 40) continue;
+        if (y > 960 || (x < 1200 && y > 800)) continue;
+        var dx = (x - reg[0]) / reg[2], dy = (y - reg[1]) / reg[3], inside = dx * dx + dy * dy < 1;
+        out.push(inside
+          ? '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="20" fill="#f0625a" opacity=".16"/><circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="7" fill="#f0625a"/>'
+          : '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="5" fill="#a9b1ba" opacity=".35"/>');
+      }
+    });
+    var ring = '<ellipse cx="' + reg[0] + '" cy="' + reg[1] + '" rx="' + reg[2] + '" ry="' + reg[3] + '" fill="none" stroke="#f0625a" stroke-width="3" stroke-dasharray="14 12" opacity=".8"/>' +
+      '<ellipse cx="' + reg[0] + '" cy="' + reg[1] + '" rx="' + (reg[2] * 1.28) + '" ry="' + (reg[3] * 1.3) + '" fill="none" stroke="#f0625a" stroke-width="2" opacity=".25"/>';
+    el.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="100%" preserveAspectRatio="none">' + out.join("") + ring + '</svg>';
+  });
+
+  // small region diagram on the how-it-works slide
+  (function () {
+    var svg = document.getElementById("regionsvg"); if (!svg) return;
+    var r = rng(3), parts = [], cx = 190, cy = 125, rx = 92, ry = 66;
+    for (var k = 0; k < 70; k++) {
+      var x = 14 + r() * 332, y = 12 + r() * 226;
+      var dx = (x - cx) / rx, dy = (y - cy) / ry;
+      if (dx * dx + dy * dy < 1.25 && dx * dx + dy * dy > .9) continue;
+      var inside = dx * dx + dy * dy < 1;
+      if (inside && r() < .45) continue;
+      if (x < 250 && y > 175) continue;
+      parts.push('<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="' + (inside ? 7 : 5) + '" fill="' + (inside ? "#4c72b0" : "#b7bfc7") + '"/>');
+    }
+    parts.push('<circle cx="40" cy="226" r="9" fill="none" stroke="#6e7781" stroke-width="3"/><path d="M32 218l16 16M48 218l-16 16" stroke="#6e7781" stroke-width="3"/>');
+    parts.push('<text x="58" y="232" font-size="17" fill="#6e7781" font-family="Avenir Next, Arial">job test, excluded</text>');
+    parts.push('<ellipse cx="' + cx + '" cy="' + cy + '" rx="' + rx + '" ry="' + ry + '" fill="rgba(76,114,176,.08)" stroke="#4c72b0" stroke-width="3" stroke-dasharray="9 7"/>');
+    svg.innerHTML = parts.join("");
+  })();
+
+  // token savings bars (numbers from README / eval/token_results.md)
+  (function () {
+    var rows = [
+      ["Questions with zero relevant hits", "12 meaning based questions, lower is better", 7, 0, "7", "0", "7 to 0"],
+      ["Recall@10", "same 12 questions, higher is better", 0.175, 0.867, "0.175", "0.867", "about 5x"],
+      ["Context tokens per question", "top 10 docs vs 800 token pack", 4445, 249, "4,445", "249", "18x fewer"],
+      ["Tokens when the topic is absent", "14 absent topics", 1858, 31, "1,858", "31", "60x fewer"],
+      ["Real 419 note vault", "tokens handed to the agent", 10907, 625, "10,907", "625", "17x fewer"]
+    ];
+    var host = document.getElementById("bars"); if (!host) return;
+    host.innerHTML = rows.map(function (r) {
+      var max = Math.max(r[2], r[3]), w = function (v) { return Math.max(0.4, v / max * 100).toFixed(1); };
+      return '<div class="bar-row"><div class="what">' + r[0] + '<small>' + r[1] + '</small></div>' +
+        '<div class="track"><span class="who">keyword</span><span class="b"><i style="width:calc(' + w(r[2]) + '% - 110px)"></i>' + r[4] + '</span>' +
+        '<span class="who us">Atlas</span><span class="b us"><i style="width:calc(' + w(r[3]) + '% - 110px)"></i>' + r[5] + '</span></div>' +
+        '<div class="gain">' + r[6] + '</div></div>';
+    }).join("");
+  })();
+
+  var params = new URLSearchParams(location.search);
+  var presenter = params.has("presenter");
+  var cur = 0;
+  var chan = null;
+  try { chan = new BroadcastChannel("inbox-atlas-deck"); } catch (e) { chan = null; }
+  var peer = null; // the other window, as a fallback where BroadcastChannel is unavailable (file://)
+
+  function fromHash() { var n = parseInt((location.hash || "").replace("#", ""), 10); return isNaN(n) ? 0 : Math.min(Math.max(n - 1, 0), total - 1); }
+  function notesHTML(i) { var a = slides[i].querySelector(".notes"); return a ? a.innerHTML : ""; }
+
+  function send(i) {
+    var msg = { type: "go", n: i };
+    if (chan) try { chan.postMessage(msg); } catch (e) {}
+    try { if (peer && !peer.closed) peer.postMessage(msg, "*"); } catch (e) {}
+    try { if (window.opener && !window.opener.closed) window.opener.postMessage(msg, "*"); } catch (e) {}
+  }
+
+  function onMsg(d) { if (d && d.type === "go" && typeof d.n === "number" && d.n !== cur) go(d.n, true); }
+  if (chan) chan.onmessage = function (e) { onMsg(e.data); };
+  window.addEventListener("message", function (e) { onMsg(e.data); });
+
+  // ---------- presenter view ----------
+  var pv = null;
+  function buildPresenter() {
+    document.body.classList.add("presenter");
+    document.querySelector(".viewport").remove();
+    document.getElementById("progress").remove();
+    document.querySelector(".help").remove();
+    pv = document.createElement("div");
+    pv.className = "pv";
+    pv.innerHTML = '<div class="bar"><span class="timer" id="pvTimer">00:00</span><button id="pvReset">Reset timer</button><button id="pvPrev">Previous</button><button id="pvNext">Next</button><span class="count" id="pvCount"></span><span class="count" id="pvClock" style="margin-left:auto"></span></div>' +
+      '<div class="cur" id="pvCur"></div><div class="right"><div><div class="lbl">Next</div><div class="nxt" id="pvNxt"></div></div><div class="pnotes" id="pvNotes"></div></div>';
+    document.body.appendChild(pv);
+    ["pvCur", "pvNxt"].forEach(function (id) {
+      var box = document.getElementById(id), mini = document.createElement("div");
+      mini.className = "mini deck instant";
+      slides.forEach(function (s) { mini.appendChild(s.cloneNode(true)); });
+      box.appendChild(mini);
+    });
+    var t0 = Date.now();
+    document.getElementById("pvReset").onclick = function () { t0 = Date.now(); };
+    document.getElementById("pvPrev").onclick = function () { go(cur - 1); };
+    document.getElementById("pvNext").onclick = function () { go(cur + 1); };
+    setInterval(function () {
+      var s = Math.floor((Date.now() - t0) / 1000);
+      document.getElementById("pvTimer").textContent = String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+      document.getElementById("pvClock").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    }, 250);
+  }
+  function renderPresenter() {
+    [["pvCur", cur], ["pvNxt", cur + 1]].forEach(function (p) {
+      var box = document.getElementById(p[0]), mini = box.querySelector(".mini"), ss = mini.querySelectorAll(".slide");
+      Array.prototype.forEach.call(ss, function (s, i) { s.classList.toggle("on", i === p[1]); });
+      var sc = Math.min(box.clientWidth / 1920, box.clientHeight / 1080);
+      mini.style.transform = "translate(-50%, -50%) scale(" + sc + ")";
+    });
+    document.getElementById("pvNotes").innerHTML = notesHTML(cur) || "<p>No notes.</p>";
+    document.getElementById("pvCount").textContent = "Slide " + (cur + 1) + " of " + total;
+  }
+
+  // ---------- main view ----------
+  var notesOn = false;
+  function fit() {
+    if (presenter) { renderPresenter(); return; }
+    var sc = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+    deck.style.transform = "translate(-50%, -50%) scale(" + sc + ")";
+  }
+  function renderNotes() {
+    var p = document.getElementById("notesPanel");
+    if (!p) return;
+    p.hidden = !notesOn;
+    if (notesOn) p.innerHTML = '<div class="hint">Notes for slide ' + (cur + 1) + ' of ' + total + ' (N to hide, P for presenter view)</div>' + notesHTML(cur);
+  }
+
+  function go(i, remote) {
+    i = Math.min(Math.max(i, 0), total - 1);
+    cur = i;
+    if (presenter) { renderPresenter(); }
+    else {
+      slides.forEach(function (s, k) { s.classList.toggle("on", k === i); });
+      document.getElementById("progress").style.width = ((i + 1) / total * 100) + "%";
+      renderNotes();
+    }
+    var h = "#" + (i + 1);
+    if (location.hash !== h) history.replaceState(null, "", h);
+    if (!remote) send(i);
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var k = e.key;
+    if (k === "ArrowRight" || k === "ArrowDown" || k === " " || k === "PageDown" || k === "Enter") { e.preventDefault(); go(cur + 1); }
+    else if (k === "ArrowLeft" || k === "ArrowUp" || k === "PageUp" || k === "Backspace") { e.preventDefault(); go(cur - 1); }
+    else if (k === "Home") go(0);
+    else if (k === "End") go(total - 1);
+    else if (k === "n" || k === "N") { if (!presenter) { notesOn = !notesOn; renderNotes(); } }
+    else if (k === "p" || k === "P") {
+      if (!presenter) {
+        var url = location.href.split("#")[0].split("?")[0] + "?presenter#" + (cur + 1);
+        peer = window.open(url, "inbox-atlas-presenter", "width=1400,height=850");
+      }
+    }
+    else if (k === "f" || k === "F") {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(function () {});
+      else document.exitFullscreen();
+    }
+  });
+
+  if (presenter) buildPresenter();
+  else {
+    deck.addEventListener("click", function (e) {
+      if (e.target.closest("a, button")) return;
+      var x = e.clientX / window.innerWidth;
+      go(x < 0.2 ? cur - 1 : cur + 1);
+    });
+  }
+  window.addEventListener("hashchange", function () { var n = fromHash(); if (n !== cur) go(n); });
+  window.addEventListener("resize", fit);
+  deck.classList.add("instant");
+  go(fromHash(), true);
+  fit();
+  requestAnimationFrame(function () { requestAnimationFrame(function () { deck.classList.remove("instant"); }); });
+  // when the presenter window opens, it tells the main window where it is
+  if (presenter) send(cur);
+})();
+</script>
+</body>
+</html>
