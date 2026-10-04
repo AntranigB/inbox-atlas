@@ -114,6 +114,10 @@ Hub correction matters because newsletters and long promotional emails sit close
 
 ### atlas-embed: the encoder
 
+<p align="center"><img src="assets/architecture.png" width="900" alt="Embedding architecture: frozen bge-base backbone with LoRA adapters, Matryoshka heads, frozen cross-encoder teacher, and the Set Transformer region model" /></p>
+
+Gray hatched blocks are frozen, red blocks are trained. Stage A trains only the LoRA adapters; stage B freezes the whole encoder and trains only the Set Transformer.
+
 ```
 email text --> [ FROZEN bge-base-en-v1.5, 110M ] + LoRA r=16 on q,k,v,o (1.18M trainable) --> CLS --> L2
                                                                                                   |
