@@ -1,0 +1,15 @@
+#!/bin/sh
+# Rejects staged changes that add em/en dashes or commits not authored by xerneas3318.
+if [ "$(git config user.name)" != "xerneas3318" ]; then
+  echo "pre-commit: commits must be authored by xerneas3318 (git config user.name xerneas3318)" >&2
+  exit 1
+fi
+ent='&''mdash;'
+if git diff --cached -U0 --no-color | grep '^+' | grep -v '^+++' | grep -q "$(printf '\342\200\224')\|$(printf '\342\200\223')\|$ent"; then
+  echo "pre-commit: staged changes add an em dash or en dash; use commas, colons or hyphens" >&2
+  exit 1
+fi
+if git diff --cached --name-only | grep -qx 'instructions.md'; then
+  echo "pre-commit: instructions.md must never be committed" >&2
+  exit 1
+fi
