@@ -96,7 +96,8 @@ class Bridge:
             except json.JSONDecodeError:
                 args = {}
             await self.to_browser({"type": "atlas.hits", "tool": name, "args": args,
-                                   "hits": result["hits"], "region": result.get("region")})
+                                   "hits": result["hits"], "region": result.get("region"),
+                                   "full": result.get("_full")})
         return call_id, result
 
     async def flush_calls(self):
