@@ -93,7 +93,7 @@ def _grok_label(subjects, cache):
                    json={"model": config.GROK_MODEL, "temperature": 0.2, "max_tokens": 20,
                          "messages": [{"role": "user", "content": prompt}]})
     r.raise_for_status()
-    label = r.json()["choices"][0]["message"]["content"].strip().strip('"').strip()
+    label = r.json()["choices"][0]["message"]["content"].strip().strip("\"*#`_ ").strip()
     label = re.sub("[\u2013\u2014]", "-", label)[:40]
     cache[key] = label
     return label
