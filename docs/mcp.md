@@ -26,6 +26,8 @@ to Grok (for facets); the packed excerpts go wherever your agent sends its conte
 | `atlas_search(query, k=10, sources)` | ranked hits with uri, title, date, a 160 char snippet and z |
 | `atlas_related(topic, sources)` | calibrated yes/no with up to 3 example uris |
 | `atlas_get(uri, max_tokens=1500)` | one email (`gmail:<id>`), one note section (`path.md#anchor`) or a whole note (`path.md`), capped |
+| `atlas_points_of_interest(question, k_folders=5, k_notes=3, within=None)` | which vault folders a question lives in: `related`, ranked folders (path, hit notes / notes, score, top tags, best note uris, one excerpt), a compact `context` string and its `tokens`. `within="projects/"` restricts to a subtree |
+| `atlas_related_folders(path, k=5)` | folders nearest to `path` by folder vector (ancestors and descendants excluded), with the cosine and shared tags and wikilinks |
 
 Same thing over HTTP from the main server (`uv run python server.py`):
 
@@ -33,6 +35,9 @@ Same thing over HTTP from the main server (`uv run python server.py`):
 curl -s localhost:8765/api/context -H 'content-type: application/json' \
   -d '{"question": "when is my flight?", "budget_tokens": 300}'
 curl -s localhost:8765/api/context/get -H 'content-type: application/json' -d '{"uri": "projects/Japan trip.md"}'
+curl -s localhost:8765/api/context/folders -H 'content-type: application/json' \
+  -d '{"question": "how much grip force does the claw have?", "within": "projects/robotics"}'
+curl -s 'localhost:8765/api/context/related_folders?path=kitchen&k=3'
 ```
 
 ## Run the MCP server
@@ -108,3 +113,23 @@ client works with the generic stdio command above.
 6. Greedy packing under the budget, dropping weakest sentences first. Tokens are tiktoken cl100k_base.
 
 Numbers: [eval/token_results.md](../eval/token_results.md).
+
+## Navigating a nested vault by folder
+
+Second brains and agent workspaces (Obsidian vaults, Hermes and OpenClaw memory folders) are deep trees.
+`atlas_points_of_interest` lets an agent find where a question lives before it reads any note
+(`atlas/context/tree.py`):
+
+1. Every folder gets a vector: the L2-normalized mean of all section vectors under it, and a local
+   version that weights the folder's own notes over its descendants (half per level down). Each folder
+   also carries stats: notes, direct notes, sections, last modified, top tags.
+2. The question goes through the same Grok facets and hub-corrected region as `atlas_context`. The
+   related? verdict is taken over the vault only (or only the `within` subtree).
+3. A note scores its best section; a note is a hit when that section is in the region. A folder scores
+   `(0.6 x max z + 0.4 x mean of its top 3 notes) x sqrt(hit notes / notes)`, so a folder full of hits
+   beats the parent that dilutes it. An ancestor that points at exactly the same hit notes as a folder
+   already listed is dropped.
+4. Each listed folder gets its best note uris and one or two sentences from its best section.
+
+Drill down with `within`: whole vault, then `within="projects/"`, then `atlas_get` on the note.
+`atlas_related_folders(path)` compares folder vectors and skips the folder's own lineage.

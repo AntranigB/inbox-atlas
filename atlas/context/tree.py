@@ -101,6 +101,7 @@ class Tree:
     sec_folder: list  # folder path of each section
     sec_note: list  # note path (thread) of each section
     folders: dict  # path -> Folder
+    mean: np.ndarray | None = None  # mean section vector of the whole vault
     key: tuple = ()
 
     def folder_mask(self, folder: str) -> np.ndarray:
@@ -156,7 +157,7 @@ def build_tree(eng=None) -> Tree:
             top_tags=[t for t, _ in tags.most_common(5)], links=links,
             stems={n.rsplit("/", 1)[-1].removesuffix(".md").lower() for n in note_set})
     return Tree(sec_ids=[r["id"] for r in rows], sec_rows=sec_rows, sec_folder=dirs, sec_note=notes,
-                folders=folders)
+                folders=folders, mean=E.mean(0) if len(E) else None)
 
 
 _cache: dict = {}
@@ -180,7 +181,7 @@ def get_tree(eng=None) -> Tree:
 # ---------- points of interest ----------
 
 def _best_sentence(eng, reg, row, max_tokens=EXCERPT_TOKENS) -> str | None:
-    """The one sentence of a section that scores highest against the question region (None if it has no prose)."""
+    """The one or two sentences of a section that scores highest against the question region (None if it has no prose)."""
     text = row.get("body") or ""
     # notes are often hard wrapped: join single line breaks, keep paragraphs and list items apart
     text = re.sub(r"(?<=\S)[ \t]*\n(?![ \t]*(\n|[-*+>#|]|\d+\.))[ \t]*", " ", text)
@@ -189,17 +190,24 @@ def _best_sentence(eng, reg, row, max_tokens=EXCERPT_TOKENS) -> str | None:
         return None
     if len(ss) == 1:
         return pack.truncate_tokens(ss[0], max_tokens)
-    S = reg.score(eng.enc.encode_docs([f"{row.get('subject') or ''}: {s}" for s in ss]))
-    return pack.truncate_tokens(ss[int(np.argmax(S))], max_tokens)
+    S = reg.score(eng.enc.encode_docs(ss))
+    order = [int(i) for i in np.argsort(-S)]
+    keep = [order[0]]
+    if pack.count_tokens(ss[order[0]] + " " + ss[order[1]]) <= max_tokens:
+        keep.append(order[1])  # a second sentence when both fit the excerpt cap
+    return pack.truncate_tokens(pack._excerpt(ss, keep), max_tokens)
 
 
-def _folder_excerpt(eng, reg, t, zz, member, folder):
-    """Best sentence from the highest scoring section inside the folder that has prose."""
+def _folder_excerpt(eng, reg, t, zz, folder, used: set):
+    """Best sentences from the highest scoring section inside the folder that has prose and was not
+    already quoted for a folder listed above it."""
     idx = [i for i in np.flatnonzero(np.isfinite(zz)) if is_under(t.sec_folder[i], folder)]
-    for i in sorted(idx, key=lambda i: -zz[i])[:4]:
+    idx = sorted(idx, key=lambda i: -zz[i])[:5]
+    for i in [i for i in idx if i not in used] + [i for i in idx if i in used]:
         row = store.get_email(eng.conn, t.sec_ids[i]) or {}
         s = _best_sentence(eng, reg, row)
         if s:
+            used.add(i)
             return row.get("subject"), s
     return None, ""
 
@@ -273,7 +281,7 @@ def points_of_interest(question: str, k_folders: int = 5, k_notes: int = 3, with
         cands.append((agg * precision ** 0.5, p, hits, agg, precision))
     cands.sort(key=lambda c: -c[0])
 
-    folders, seen_sets = [], []
+    folders, seen_sets, quoted = [], [], set()
     for score, p, hits, agg, precision in cands:
         hs = set(hits)
         # skip an ancestor or descendant that points at exactly the same notes as a folder already listed
@@ -285,7 +293,7 @@ def points_of_interest(question: str, k_folders: int = 5, k_notes: int = 3, with
         for n in hits[:k_notes]:
             i = note_best[n]
             notes.append({"uri": t.sec_ids[i][4:], "note": n, "z": round(float(z[i]), 2)})
-        title, excerpt = _folder_excerpt(eng, reg, t, zz, member, p)
+        title, excerpt = _folder_excerpt(eng, reg, t, zz, p, quoted)
         folders.append({**f.stats(), "score": round(score, 2), "max_z": round(float(zz[note_best[hits[0]]]), 2),
                         "hit_notes": len(hits), "precision": round(precision, 2), "notes": notes,
                         "title": title, "excerpt": excerpt})
@@ -299,9 +307,11 @@ def points_of_interest(question: str, k_folders: int = 5, k_notes: int = 3, with
 
 # ---------- related folders ----------
 
-def related_folders(path: str, k: int = 5, engine=None, local: bool = False) -> dict:
+def related_folders(path: str, k: int = 5, engine=None, local: bool = False, centered: bool = False) -> dict:
     """Nearest folders to `path` by folder vector, skipping its ancestors and descendants.
 
+    centered=True subtracts the vault's mean section vector first, which spreads the cosines out (every
+    note in one vault shares a voice) but is noisy on small vaults, so it is off by default.
     Each neighbour comes with the cosine, the tags both folders use, and the wikilinks they share
     (a link target both use, or a link from one into a note of the other)."""
     eng = engine or get_engine()
@@ -312,12 +322,17 @@ def related_folders(path: str, k: int = 5, engine=None, local: bool = False) -> 
         return {"path": _label(p), "error": "not found", "related": [], "context": reason,
                 "tokens": pack.count_tokens(reason)}
     f = t.folders[p]
-    v = f.local if local else f.vec
+    mu = t.mean if centered and t.mean is not None else 0.0
+
+    def fv(g):
+        return _norm((g.local if local else g.vec) - mu)
+
+    v = fv(f)
     out = []
     for q, g in t.folders.items():
         if q == p or q == ROOT or is_under(q, p) or is_under(p, q):
             continue
-        w = g.local if local else g.vec
+        w = fv(g)
         tags = [x for x in f.top_tags if x in g.top_tags][:3]
         shared = set(f.links) & set(g.links)
         shared |= set(f.links) & g.stems
