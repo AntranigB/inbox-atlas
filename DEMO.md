@@ -26,6 +26,10 @@ Open four windows:
 4. **Phone (optional):** the Cloudflare link from `grep trycloudflare data/logs/cloudflared.log`,
    same password. If cloudflared stopped: `cloudflared tunnel --url http://localhost:8765`.
 
+## Slides
+
+Slides: http://localhost:8765/deck/ (P for presenter view, N for notes, F fullscreen). Arrows, space or click to move; `#n` in the URL jumps to slide n. Offline copy: open `web/deck/index.html` from disk, or `docs/deck.pdf`.
+
 ## The demo (about 3 minutes)
 
 **1. Search by meaning (browser, 40 s).** Type `coding competition`.

@@ -112,6 +112,8 @@ phone over Tailscale. See [`docs/PHONE.md`](docs/PHONE.md).
 
 Optional pieces: `cd imessage && npm install && npm start` (iMessage agent), `uv run --extra dictate python dictate/dictate.py` (hold Right Option anywhere on macOS to dictate). See [`docs/INGEST.md`](docs/INGEST.md), [`docs/VOICE.md`](docs/VOICE.md), [`docs/IMESSAGE.md`](docs/IMESSAGE.md).
 
+Pitch deck: [`web/deck/`](web/deck/index.html), served at http://localhost:8765/deck/ or opened straight from disk (P presenter view, N notes, F fullscreen; PDF in [`docs/deck.pdf`](docs/deck.pdf)).
+
 Storage on Tiger Data (Postgres + pgvector, embeddings plus Grok chat history): `docker-compose up -d`, set
 `DATABASE_URL`, run `uv run python -m atlas.db.migrate`. Tiger Cloud works by swapping `DATABASE_URL`. See [`docs/TIGER.md`](docs/TIGER.md).
 
