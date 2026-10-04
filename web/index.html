@@ -2,8 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Inbox Atlas</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <meta name="theme-color" content="#f4efe4" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#12161a" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Atlas">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <script src="auth.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -60,6 +70,10 @@
 
     <section class="panel chat-panel">
       <div class="panel-head"><h2>Ask Grok</h2><span class="meta">tools: search_region, is_related, agenda</span></div>
+      <div class="sessions">
+        <select id="session-pick" aria-label="Chat session"><option value="">New chat</option></select>
+        <button id="session-new" class="ghost" type="button" title="Start a new chat">new</button>
+      </div>
       <div id="chat-log" class="chat-log">
         <div class="msg bot">Ask anything about your inbox. Try "what do I have Sunday?" or "did anyone ask me for money?"</div>
       </div>

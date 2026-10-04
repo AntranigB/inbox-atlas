@@ -8,7 +8,7 @@
     mode: "region", encoder: null, query: "",
     positive: null, negative: null, // null means let Grok expand
     res: null, map: null, hits: new Map(), members: new Set(), facetPts: [],
-    view: { s: 1, tx: 0, ty: 0 }, hover: null, history: [],
+    view: { s: 1, tx: 0, ty: 0 }, hover: null, history: [], session: null,
   };
 
   async function api(path, opts) {
@@ -268,7 +268,9 @@
     ctx.textAlign = "center";
     for (const c of clusterCenters) {
       if (c.size < 3 && clusterCenters.length > 8) continue;
-      const [x, y] = toScreen(c.x, c.y, w, h);
+      let [x, y] = toScreen(c.x, c.y, w, h);
+      const half = ctx.measureText(c.label).width / 2 + 4;
+      if (half * 2 < w) x = Math.max(half, Math.min(w - half, x)); // keep labels inside on narrow screens
       ctx.lineWidth = 3; ctx.strokeStyle = paper; ctx.fillStyle = active ? css("--ink-3") : ink;
       ctx.strokeText(c.label, x, y); ctx.fillText(c.label, x, y);
     }
@@ -378,12 +380,52 @@
     return m;
   }
 
+  /* ---------- chat sessions (server keeps history, POST /api/chat) ---------- */
+  const SKEY = "atlas_session";
+  const remember = (id) => { try { id ? localStorage.setItem(SKEY, id) : localStorage.removeItem(SKEY); } catch (_) {} };
+  const sessionLabel = (s) => {
+    const who = /^(imessage|telegram|whatsapp_business|slack):/.test(s.id) ? s.id.split(":")[0].replace("_business", "") + " " + s.id.split(":").slice(1).join(":") : "";
+    const title = (s.title || "").replace(/\n\[context:[\s\S]*$/, "").slice(0, 40) || "chat";
+    return who ? `${who}: ${title}` : title;
+  };
+  let chatApi = true;
+  async function loadSessions() {
+    const pick = $("#session-pick");
+    let list = [];
+    try { list = await api("/api/chat/sessions?limit=40"); } catch (_) { chatApi = false; pick.parentElement.hidden = true; return; }
+    pick.innerHTML = "";
+    pick.append(new Option("New chat", ""));
+    for (const s of list) pick.append(new Option(sessionLabel(s), s.id));
+    if (state.session && !list.some((s) => s.id === state.session)) pick.append(new Option("this chat", state.session));
+    pick.value = state.session || "";
+  }
+  async function openSession(id) {
+    state.session = id || null;
+    state.history = [];
+    remember(state.session);
+    $("#chat-log").innerHTML = "";
+    if (!id) { addMsg("bot", "New chat. Ask anything about your inbox."); return; }
+    try {
+      const r = await api(`/api/chat/sessions/${encodeURIComponent(id)}`);
+      for (const m of r.messages || []) {
+        addMsg(m.role === "user" ? "user" : "bot", m.role === "user" ? String(m.content).replace(/\n\[context:[\s\S]*$/, "") : m.content);
+        state.history.push({ role: m.role, content: m.content });
+      }
+      if (!(r.messages || []).length) addMsg("bot", "Empty chat.");
+    } catch (e) { addMsg("bot", "Could not load that chat: " + e.message); }
+  }
+  $("#session-pick").addEventListener("change", (e) => openSession(e.target.value));
+  $("#session-new").addEventListener("click", () => { openSession(null); loadSessions(); $("#chat-in").focus(); });
+
   async function ask(text) {
     if (!text.trim()) return;
     addMsg("user", text);
     const wait = addMsg("bot thinking", "navigating your inbox");
     try {
-      const res = await api("/api/ask", { body: { text, channel: "web", history: state.history.slice(-10) } });
+      const res = chatApi
+        ? await api("/api/chat", { body: { text, channel: "web", session_id: state.session } })
+        : await api("/api/ask", { body: { text, channel: "web", history: state.history.slice(-10) } });
+      if (res.session_id && res.session_id !== state.session) { state.session = res.session_id; remember(res.session_id); loadSessions(); }
       wait.remove();
       const tr = (res.trace || []).map((t) => t.tool).join(" > ");
       addMsg("bot", res.reply || "(no answer)", tr ? "tools: " + tr : "");
@@ -411,7 +453,7 @@
   async function init() {
     try {
       const h = await api("/api/health");
-      $("#status").textContent = `${h.n_emails} emails, encoder ${h.encoder}`;
+      $("#status").textContent = "n_emails" in h ? `${h.n_emails} emails, ${h.encoder}` : "locked";
     } catch (e) { $("#status").textContent = "server offline"; }
     try {
       const enc = await api("/api/encoders");
@@ -430,6 +472,9 @@
         });
       }
     } catch (_) {}
+    try { state.session = new URLSearchParams(location.search).get("session") || localStorage.getItem(SKEY) || null; } catch (_) {}
+    await loadSessions();
+    if (state.session) await openSession(state.session);
     await loadMap();
     const q = new URLSearchParams(location.search).get("q");
     if (q) search(q);

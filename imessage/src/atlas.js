@@ -8,10 +8,12 @@ export class AtlasError extends Error {
 }
 
 export class AtlasClient {
-  constructor(baseUrl = 'http://localhost:8765', fetchImpl = globalThis.fetch, timeoutMs = 90000) {
+  constructor(baseUrl = 'http://localhost:8765', fetchImpl = globalThis.fetch, timeoutMs = 90000, token = '') {
     this.base = baseUrl.replace(/\/$/, '');
     this.fetch = fetchImpl;
     this.timeoutMs = timeoutMs;
+    this.token = token;
+    this.noChat = false;
   }
 
   async call(method, path, body) {
@@ -19,7 +21,10 @@ export class AtlasClient {
     try {
       res = await this.fetch(this.base + path, {
         method,
-        headers: body ? { 'content-type': 'application/json' } : {},
+        headers: {
+          ...(body ? { 'content-type': 'application/json' } : {}),
+          ...(this.token ? { authorization: `Bearer ${this.token}` } : {}),
+        },
         body: body ? JSON.stringify(body) : undefined,
         signal: AbortSignal.timeout(this.timeoutMs),
       });
@@ -41,8 +46,22 @@ export class AtlasClient {
     }
   }
 
-  ask(text, history = []) {
+  // With a session id the server keeps the history (POST /api/chat, shared with the web UI's
+  // session list). Older servers without /api/chat get the local history on /api/ask.
+  async ask(text, history = [], sessionId = null) {
+    if (sessionId && !this.noChat) {
+      try {
+        return await this.call('POST', '/api/chat', { text, channel: 'imessage', session_id: sessionId });
+      } catch (err) {
+        if (!(err instanceof AtlasError) || (err.status !== 404 && err.status !== 405)) throw err;
+        this.noChat = true;
+      }
+    }
     return this.call('POST', '/api/ask', { text, channel: 'imessage', history });
+  }
+
+  resetSession(sessionId) {
+    return this.call('DELETE', `/api/chat/sessions/${encodeURIComponent(sessionId)}`).catch(() => null);
   }
 
   // Served by atlas/api/messaging.py: todays_agenda when search-agent is merged, else a local fallback.

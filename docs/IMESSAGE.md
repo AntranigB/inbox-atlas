@@ -42,9 +42,29 @@ Built on [Photon Spectrum](https://photon.codes/spectrum) (`spectrum-ts`, open s
 ## 3. Run it
 
 ```sh
+uv run atlas up                    # starts both, restarts them on crash (see docs/PHONE.md)
+uv run atlas status                # shows "Photon connected" and whether your thread is known
+```
+
+or by hand:
+
+```sh
 uv run python server.py            # API server on :8765 (starts the notifier)
 cd imessage && npm install && npm start   # sidecar on :8766
 ```
+
+Each sender is one chat session on the server (`POST /api/chat`, id `imessage:<handle>`), so the
+history is shared with the web app's chat list and survives sidecar restarts.
+
+### Other platforms
+
+`SPECTRUM_PROVIDERS` (comma list, default `imessage`) runs the same bot on more spectrum-ts
+providers: `whatsapp` (WhatsApp Business: `WHATSAPP_ACCESS_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID`,
+optional `WHATSAPP_APP_SECRET`, or leave them empty when the platform is enabled in the Photon
+dashboard), `telegram` (`TELEGRAM_BOT_TOKEN`, optional `TELEGRAM_WEBHOOK_SECRET`) and `slack`.
+All inbound messages arrive on the same `app.messages` stream; replies go back into the same
+space. Put your handle on that platform in `OWNER_HANDLES`. Proactive texts (brief, alerts) go
+to iMessage; on other platforms the sidecar only replies into chats people opened.
 
 ## 4. Text the line once first (required)
 

@@ -160,3 +160,42 @@ h1 { font: 600 26px/1 var(--serif); margin: 0; letter-spacing: -0.01em; }
   .tag { display: none; }
   #q { font-size: 16px; }
 }
+
+/* chat sessions */
+.sessions { display: flex; gap: 8px; align-items: center; padding: 8px 12px 0; }
+.sessions select {
+  flex: 1; min-width: 0; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--rule);
+  background: var(--bg); color: var(--ink); font: 13px var(--mono);
+}
+.sessions .ghost { padding: 6px 10px; }
+
+/* phone */
+body {
+  padding-left: max(clamp(16px, 3vw, 36px), env(safe-area-inset-left));
+  padding-right: max(clamp(16px, 3vw, 36px), env(safe-area-inset-right));
+  padding-bottom: max(40px, env(safe-area-inset-bottom));
+}
+@media (max-width: 600px) {
+  body { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); background-size: 18px 18px; }
+  .top { padding: max(14px, env(safe-area-inset-top)) 0 6px; }
+  h1 { font-size: 22px; white-space: nowrap; }
+  .mark { width: 30px; height: 30px; }
+  .status { font-size: 11px; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #search-form { flex-wrap: wrap; }
+  #q { flex: 1 1 100%; padding: 12px 14px; }
+  #voice-slot { flex: 1 1 auto; min-width: 0; }
+  .go { padding: 10px 18px; margin-left: auto; }
+  .controls { margin-top: 8px; }
+  .seg button { padding: 5px 11px; }
+  .grid { gap: 12px; grid-template-areas: "map" "chat" "results"; }
+  .map-wrap { height: 36vh; min-height: 240px; }
+  .legend { padding: 6px 12px 10px; font-size: 11px; }
+  .panel-head { padding: 10px 12px 8px; }
+  .panel-head .meta { font-size: 11px; }
+  .chat-log { max-height: 55vh; padding: 10px 12px; }
+  .msg { max-width: 92%; }
+  .chat-form { position: sticky; bottom: 0; background: var(--paper); border-radius: 0 0 var(--radius) var(--radius); }
+  .chat-form input { font-size: 16px; } /* no iOS zoom on focus */
+  .hit { padding: 10px 12px; }
+  .zbar { flex-basis: 80px; }
+}

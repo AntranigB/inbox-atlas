@@ -26,18 +26,27 @@ function reply(res, status, obj) {
   res.end(JSON.stringify(obj));
 }
 
-export function createServer({ transport, owner }) {
+export function createServer({ transport, owner, atlas = null }) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     try {
       if (req.method === 'GET' && url.pathname === '/health') {
-        return reply(res, 200, { ok: true, mode: transport.mode, owner: owner || null });
+        return reply(res, 200, {
+          ok: true,
+          mode: transport.mode,
+          owner: owner || null,
+          connected: transport.mode === 'mock' ? true : !!transport.connected,
+          providers: transport.providers || [transport.mode === 'mock' ? 'mock' : 'imessage'],
+          threads: transport.threads ? transport.threads() : [],
+          last_error: transport.lastError || null,
+          atlas: atlas?.base || null,
+        });
       }
       if (req.method === 'POST' && url.pathname === '/send') {
         const body = await readJson(req);
         const text = String(body.text || '').trim();
         if (!text) return reply(res, 400, { ok: false, error: 'text is required' });
-        const r = await transport.send(text, body.to);
+        const r = await transport.send(text, body.to, body.platform);
         return reply(res, 200, r);
       }
       if (req.method === 'POST' && url.pathname === '/mock/inbound' && transport.mode === 'mock') {

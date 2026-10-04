@@ -1,4 +1,13 @@
-// Real iMessage transport over Photon Spectrum (spectrum-ts).
+// Real messaging transport over Photon Spectrum (spectrum-ts).
+//
+// SPECTRUM_PROVIDERS picks the platforms (comma list, default "imessage"):
+//   imessage            Photon iMessage line (project id + secret only)
+//   whatsapp            WhatsApp Business: WHATSAPP_ACCESS_TOKEN + WHATSAPP_PHONE_NUMBER_ID
+//                       (+ optional WHATSAPP_APP_SECRET), or enable it in the Photon dashboard
+//                       and leave them empty (cloud mode)
+//   telegram            Telegram bot: TELEGRAM_BOT_TOKEN (+ optional TELEGRAM_WEBHOOK_SECRET)
+//   slack, terminal     also shipped by spectrum-ts; slack is configured in the Photon dashboard
+// Inbound from every provider arrives on the same app.messages stream and goes to the same Bot.
 //
 // Shared Spectrum lines will not cold start a chat. The owner must text the
 // assigned line once first (or be added under Dashboard > Users and open the
@@ -10,6 +19,54 @@ import { normalizeHandle, splitMessage } from './text.js';
 
 export function spectrumConfigured(env = process.env) {
   return !!(env.SPECTRUM_PROJECT_ID && env.SPECTRUM_PROJECT_SECRET);
+}
+
+const ALIASES = { whatsapp: 'whatsapp-business', whatsapp_business: 'whatsapp-business', wa: 'whatsapp-business', tg: 'telegram' };
+
+export function providerNames(env = process.env) {
+  const raw = (env.SPECTRUM_PROVIDERS || 'imessage').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return [...new Set(raw.map((n) => ALIASES[n] || n))];
+}
+
+// Platform name as it appears on message.platform, used to prefix session ids.
+export function platformKey(name) {
+  return name === 'whatsapp-business' ? 'whatsapp_business' : name;
+}
+
+// Build [name, config] pairs for Spectrum({providers}). Unknown or unconfigured ones are skipped with a warning.
+export async function loadProviders(env = process.env, log = console, importer = (p) => import(p)) {
+  const out = [];
+  for (const name of providerNames(env)) {
+    try {
+      if (name === 'imessage') {
+        const { imessage } = await importer('spectrum-ts/providers/imessage');
+        out.push({ name, mod: imessage, config: imessage.config() });
+      } else if (name === 'whatsapp-business') {
+        const { whatsappBusiness } = await importer('spectrum-ts/providers/whatsapp-business');
+        const direct = env.WHATSAPP_ACCESS_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID;
+        const cfg = direct
+          ? { accessToken: env.WHATSAPP_ACCESS_TOKEN, phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID, ...(env.WHATSAPP_APP_SECRET ? { appSecret: env.WHATSAPP_APP_SECRET } : {}) }
+          : {};
+        out.push({ name, mod: whatsappBusiness, config: whatsappBusiness.config(cfg) });
+      } else if (name === 'telegram') {
+        if (!env.TELEGRAM_BOT_TOKEN) {
+          log.warn('[imessage] telegram provider skipped: set TELEGRAM_BOT_TOKEN');
+          continue;
+        }
+        const { telegram } = await importer('spectrum-ts/providers/telegram');
+        const cfg = { botToken: env.TELEGRAM_BOT_TOKEN, ...(env.TELEGRAM_WEBHOOK_SECRET ? { webhookSecret: env.TELEGRAM_WEBHOOK_SECRET } : {}) };
+        out.push({ name, mod: telegram, config: telegram.config(cfg) });
+      } else if (name === 'slack' || name === 'terminal') {
+        const mod = (await importer(`spectrum-ts/providers/${name}`))[name];
+        out.push({ name, mod, config: mod.config() });
+      } else {
+        log.warn(`[imessage] unknown provider "${name}" in SPECTRUM_PROVIDERS, skipped`);
+      }
+    } catch (err) {
+      log.error(`[imessage] provider ${name} failed to load: ${err?.message || err}`);
+    }
+  }
+  return out;
 }
 
 export class SpectrumTransport {
@@ -27,20 +84,30 @@ export class SpectrumTransport {
       } catch {}
     }
     this.mode = 'spectrum';
+    this.connected = false;
+    this.providers = [];
+    this.lastError = null;
   }
 
   async start() {
     const { Spectrum } = await import('spectrum-ts');
-    const { imessage } = await import('spectrum-ts/providers/imessage');
-    this.imessage = imessage;
+    const loaded = await loadProviders(this.env, this.log);
+    if (!loaded.length) throw new Error('no Spectrum providers configured (SPECTRUM_PROVIDERS)');
     this.app = await Spectrum({
       projectId: this.env.SPECTRUM_PROJECT_ID,
       projectSecret: this.env.SPECTRUM_PROJECT_SECRET,
-      providers: [imessage.config()],
+      providers: loaded.map((p) => p.config),
     });
-    this.im = imessage(this.app);
-    this.log.log('[imessage] connected to Spectrum, listening for iMessages');
+    this.providers = loaded.map((p) => p.name);
+    const im = loaded.find((p) => p.name === 'imessage');
+    if (im) this.im = im.mod(this.app);
+    this.connected = true;
+    this.log.log(`[imessage] connected to Spectrum (${this.providers.join(', ')}), listening`);
     this.loop = this.listen();
+  }
+
+  threads() {
+    return Object.keys(this.spaceIds);
   }
 
   async listen() {
@@ -50,8 +117,12 @@ export class SpectrumTransport {
         this.onMessage(space, message).catch((err) => this.log.error('[imessage] handler failed:', err));
       }
     } catch (err) {
-      this.log.error('[imessage] message stream ended:', err?.message || err);
+      this.lastError = err?.message || String(err);
+      this.log.error('[imessage] message stream ended:', this.lastError);
     }
+    this.connected = false;
+    // index.js exits so the atlas daemon restarts us with a fresh connection.
+    if (!this.stopping) this.onEnd?.();
   }
 
   async onMessage(space, message) {
@@ -59,14 +130,16 @@ export class SpectrumTransport {
     if (message.content?.type !== 'text') return;
     const sender = message.sender?.id || '';
     const text = message.content.text || '';
-    this.log.log(`[imessage] <- ${sender}: ${text}`);
+    const platform = platformKey(message.platform || space.__platform || 'imessage');
+    this.log.log(`[imessage] <- ${platform !== 'imessage' ? platform + ' ' : ''}${sender}: ${text}`);
     if (!this.bot.allowed(sender)) {
-      await this.bot.handle({ threadId: space.id, sender, text }); // logs the ignore
+      await this.bot.handle({ threadId: space.id, sender, text, platform }); // logs the ignore
       return;
     }
-    this.remember(sender, space);
-    message.read().catch(() => {});
-    const reply = await space.responding(() => this.bot.handle({ threadId: space.id, sender, text }));
+    this.remember(platform === 'imessage' ? sender : `${platform}:${sender}`, space);
+    message.read?.().catch?.(() => {});
+    const handle = () => this.bot.handle({ threadId: space.id, sender, text, platform });
+    const reply = typeof space.responding === 'function' ? await space.responding(handle) : await handle();
     if (!reply) return;
     for (const chunk of splitMessage(reply)) {
       await space.send(chunk);
@@ -75,7 +148,7 @@ export class SpectrumTransport {
   }
 
   remember(handle, space) {
-    const h = normalizeHandle(handle);
+    const h = handle.includes(':') ? handle : normalizeHandle(handle);
     this.spaces.set(h, space);
     if (this.spaceIds[h] !== space.id) {
       this.spaceIds[h] = space.id;
@@ -100,10 +173,20 @@ export class SpectrumTransport {
     return this.im.space.create(user);
   }
 
-  async send(text, to) {
+  async send(text, to, platform) {
+    platform = platformKey(platform || 'imessage');
+    if (platform !== 'imessage') {
+      // Other providers: only reply into a chat the person opened with us.
+      const key = `${platform}:${to || ''}`;
+      const space = this.spaces.get(key);
+      if (!space) throw new Error(`no open ${platform} chat with ${to || '(nobody)'}: they have to message the bot first`);
+      const chunks = splitMessage(text);
+      for (const c of chunks) await space.send(c);
+      return { ok: true, to, platform, spaceId: space.id, parts: chunks.length };
+    }
     const handle = normalizeHandle(to || this.owner);
     if (!handle) throw new Error('no recipient: set OWNER_PHONE or pass "to"');
-    if (!this.im) throw new Error('Spectrum is not connected yet');
+    if (!this.im) throw new Error(this.providers.length ? 'imessage is not in SPECTRUM_PROVIDERS' : 'Spectrum is not connected yet');
     try {
       const space = await this.spaceFor(handle);
       const chunks = splitMessage(text);
@@ -123,6 +206,7 @@ export class SpectrumTransport {
   }
 
   async stop() {
+    this.stopping = true;
     await this.app?.stop?.();
   }
 }
