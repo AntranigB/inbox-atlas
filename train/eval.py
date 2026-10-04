@@ -165,16 +165,13 @@ def main():
             vs.append(heuristic_score(Dv, P, np.zeros((0, P.shape[1]))))
             vy.append(y)
         pa, pc = fit_platt(np.concatenate(vy), np.concatenate(vs)) if vy else (1.0, 0.0)
-        learned = None
-        if path and (Path(path) / "region.pt").exists():
-            from atlas.model.region_encoder import LearnedRegionModel
+        from atlas.model.region_encoder import LearnedRegionModel
 
-            learned = LearnedRegionModel.load(Path(path) / "region.pt")
-        out = {"heuristic": {"auroc": [], "ndcg": [], "y": [], "p": []}}
         variants = {"heuristic": None}
-        if learned:
-            variants["learned"] = learned
-            out["learned"] = {"auroc": [], "ndcg": [], "y": [], "p": []}
+        if path:
+            for rp in sorted(Path(path).glob("region*.pt")):  # region.pt plus ablations region_<name>.pt
+                variants["learned" + rp.stem[len("region"):]] = LearnedRegionModel.load(rp)
+        out = {v: {"auroc": [], "ndcg": [], "y": [], "p": []} for v in variants}
         for l, phr, negs, seeds, rset in sets:
             P = enc.encode_queries(phr)
             N = enc.encode_queries(negs)
