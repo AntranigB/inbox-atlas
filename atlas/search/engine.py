@@ -115,9 +115,36 @@ class Engine:
         else:
             self.index = build_mem_index(self.conn, self.enc)
         ix = self.index
-        if ix.mu is None or ix.sigma is None:
-            ix.mu, ix.sigma = hub_stats(ix.E, self.enc)
         ix.pos = {eid: i for i, eid in enumerate(ix.ids)}
+        self.Q = self.enc.encode_queries(probe_phrases())
+        self.QG = self.Q @ self.Q.T
+        self.PR = ix.E @ self.Q.T  # (n, n_probes) cosine of every email to every probe topic
+        self._null = {}
+        if ix.mu is None or ix.sigma is None:
+            ix.mu, ix.sigma = self.PR.mean(1), self.PR.std(1) + 1e-3
+
+    def null_stats(self, k: int, trials: int = 64):
+        """Per-email mu/sigma of the region score when the k facets are random probe topics.
+        This is the hub correction matched to the region formula (max over k facets + center)."""
+        from atlas.search.region import W_CORE, W_FACET
+
+        k = max(1, min(int(k), self.PR.shape[1]))
+        if k in self._null:
+            return self._null[k]
+        if k == 1:
+            out = (self.PR.mean(1), self.PR.std(1) + 1e-3)
+        else:
+            rng = np.random.default_rng(k)
+            cols = []
+            for _ in range(trials):
+                S = rng.choice(self.PR.shape[1], k, replace=False)
+                sub = self.PR[:, S]
+                cnorm = float(np.sqrt(max(self.QG[np.ix_(S, S)].sum(), 1e-8)))
+                cols.append(W_FACET * sub.max(1) + W_CORE * sub.sum(1) / cnorm)
+            N = np.stack(cols, 1)
+            out = (N.mean(1).astype(np.float32), (N.std(1) + 1e-3).astype(np.float32))
+        self._null[k] = out
+        return out
 
     def get_map(self, fallback=True):
         ix = self.index
@@ -137,11 +164,12 @@ class Engine:
         with self.lock:
             V = self.enc.encode_docs([store.embed_text(r) for r in rows])
             ix = self.index
-            Q = self.enc.encode_queries(probe_phrases())
-            R = V @ Q.T
+            R = V @ self.Q.T
             ix.E = np.vstack([ix.E, V]).astype(np.float32)
+            self.PR = np.vstack([self.PR, R]).astype(np.float32)
             ix.mu = np.concatenate([ix.mu, R.mean(1)]).astype(np.float32)
             ix.sigma = np.concatenate([ix.sigma, R.std(1) + 1e-3]).astype(np.float32)
+            self._null = {}
             for r in rows:
                 ix.pos[r["id"]] = len(ix.ids)
                 ix.ids.append(r["id"])

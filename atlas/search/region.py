@@ -11,7 +11,7 @@ from atlas import config
 Z_MIN = 3.0
 FLOOR = {"hash": 0.30, "base": 0.50, "default": 0.55}
 
-W_FACET, W_CORE, W_NEG = 0.6, 0.4, 0.5
+W_FACET, W_CORE, W_NEG = 0.6, 0.4, 1.0
 
 
 def floor_for(encoder_name: str) -> float:

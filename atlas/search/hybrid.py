@@ -79,7 +79,8 @@ def region_scores(eng: Engine, query: str, positive=None, negative=None, kind="a
     reg = R.build_region(P, N, kind=kind, labels=pos_labels, neg_labels=neg_labels)
     E = eng.index.E
     raw = reg.score(E) if len(E) else np.zeros(0, np.float32)
-    z = R.hub_z(raw, eng.index.mu, eng.index.sigma) if len(E) else raw
+    mu, sigma = eng.null_stats(len(pos_labels)) if len(E) else (0, 1)
+    z = R.hub_z(raw, mu, sigma) if len(E) else raw
     return reg, raw, z
 
 

@@ -151,6 +151,22 @@ def test_expand_and_api(eng, monkeypatch):
     assert "events" in c.get("/api/agenda", params={"date": "2026-10-04"}).json()
 
 
+@pytest.mark.slow
+def test_coding_competition_base_encoder(monkeypatch):
+    monkeypatch.setattr(engmod, "_try_load_index", lambda name: None)
+    conn = store.connect(":memory:")
+    rows = store.load_fixture(conn)
+    topic = {r["id"]: r["topic"] for r in rows}
+    e = engmod.Engine("base", conn)
+    pos = CODING[0] + ["Google Code Jam", "AtCoder contest"]
+    neg = ["online coding assessment", "job coding interview", "take-home coding test"]
+    res = hybrid.search("coding competition", pos, neg, k=24, mode="region", engine=e)
+    order = [topic[h["id"]] for h in res["hits"]]
+    hr = next(i for i, h in enumerate(res["hits"]) if "assessment" in h["subject"].lower())
+    assert all(i < hr for i, t in enumerate(order) if t in ("hackathon", "contest"))
+    assert not hybrid.is_related("yacht maintenance", ["boat hull cleaning", "marina slip rental"], engine=e)["related"]
+
+
 def test_ask_without_key_falls_back(eng):
     out = grok.ask("Codeforces round", channel="imessage")
     assert out["reply"] and len(out["reply"]) <= 600
