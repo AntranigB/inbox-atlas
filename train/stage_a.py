@@ -55,7 +55,7 @@ def parse():
     ap.add_argument("--r", type=int, default=16)
     ap.add_argument("--alpha", type=int, default=32)
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--grad-ckpt", action="store_true", help="gradient checkpointing (less memory, slower)")
+    ap.add_argument("--no-grad-ckpt", action="store_true", help="disable gradient checkpointing (OOMs at bs 32 on 12 GB)")
     return ap.parse_args()
 
 
@@ -179,7 +179,7 @@ def main():
         cfg = LoraConfig(r=a.r, lora_alpha=a.alpha, lora_dropout=0.05, target_modules=LORA_TARGETS, bias="none")
         model = get_peft_model(base, cfg)
     model.print_trainable_parameters()
-    if a.grad_ckpt:
+    if not a.no_grad_ckpt:
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     model.enable_input_require_grads()
     model.to(dev)
