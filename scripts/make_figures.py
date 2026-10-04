@@ -15,10 +15,23 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def _auth():
+    """The live API may require ATLAS_TOKEN; read it from the env or .env without printing it."""
+    import os
+
+    tok = os.environ.get("ATLAS_TOKEN")
+    if tok is None and (ROOT / ".env").exists():
+        for line in open(ROOT / ".env"):
+            if line.startswith("ATLAS_TOKEN="):
+                tok = line.split("=", 1)[1].strip()
+    return {"Authorization": f"Bearer {tok}"} if tok else {}
 OUT = ROOT / "assets"
 RED, BLUE, GRAY, INK, MUTED = "#b31b1b", "#4c72b0", "#a0a4aa", "#1f2328", "#6e7781"
-MODEL_COLORS = {"bm25": GRAY, "base-bge": BLUE}
-MODEL_NAMES = {"bm25": "BM25", "base-bge": "base bge (frozen)"}
+MODEL_COLORS = {"bm25": GRAY, "base-bge": BLUE, "atlas-embed": RED, "atlas-embed@256": "#d9706f", "atlas-embed@64": "#efb8b7"}
+MODEL_NAMES = {"bm25": "BM25", "base-bge": "base bge (frozen)", "atlas-embed": "atlas-embed 768", "atlas-embed@256": "atlas-embed 256",
+               "atlas-embed@64": "atlas-embed 64"}
 
 plt.rcParams.update({
     "font.family": "DejaVu Sans", "font.size": 10, "axes.edgecolor": MUTED, "axes.labelcolor": INK,
@@ -75,12 +88,13 @@ def fig_eval(runs):
     tasks = list(metrics)
     models = list(dict.fromkeys(m for t in tasks for m in metrics[t]))
     w = 0.8 / len(models)
-    fig, ax = plt.subplots(figsize=(10, 3.8))
+    fig, ax = plt.subplots(figsize=(11, 4))
     for i, model in enumerate(models):
         xs = [t - 0.4 + w * (i + 0.5) for t in range(len(tasks))]
         ys = [metrics[t].get(model, 0) for t in tasks]
         bars = ax.bar(xs, ys, w * 0.9, color=MODEL_COLORS.get(model, RED), label=MODEL_NAMES.get(model, model))
-        ax.bar_label(bars, fmt="%.2f", fontsize=7, color=MUTED, padding=2)
+        if len(models) <= 3:
+            ax.bar_label(bars, fmt="%.2f", fontsize=7, color=MUTED, padding=2)
     labels = {"topic_seen": "topic\nseen folders", "topic_heldthread": "topic\nheld-out threads",
               "topic_heldfolder": "topic\nheld-out folders", "subject_heldthread": "subject\nto body",
               "grok_query_test": "specific\nquery", "grok_vague_test": "vague\nquery"}
@@ -89,7 +103,7 @@ def fig_eval(runs):
     ax.set_xlim(-0.6, len(tasks) - 0.4)
     ax.set_ylim(0, max(max(v.values()) for v in metrics.values()) * 1.15)
     ax.set(ylabel="nDCG@10", title="Enron retrieval on unseen emails")
-    ax.legend(frameon=False, ncol=len(models), loc="upper left")
+    ax.legend(frameon=False, ncol=len(models), loc="upper left", fontsize=8.5)
     save(fig, "eval_enron.png")
 
 
@@ -99,7 +113,7 @@ def fig_search(api):
 
     try:
         res = {m: httpx.post(f"{api}/api/search", json={"query": "coding competition", "mode": m, "k": 8},
-                             timeout=60).json() for m in ("keyword", "embed", "region")}
+                             headers=_auth(), timeout=60).raise_for_status().json() for m in ("keyword", "embed", "region")}
     except httpx.HTTPError as e:
         print("skip search figure:", e)
         return
@@ -144,7 +158,7 @@ def fig_related(api):
     try:
         for kind in ("present", "absent"):
             for t in topics[kind]:
-                r = httpx.get(f"{api}/api/related", params={"topic": t}, timeout=60).json()
+                r = httpx.get(f"{api}/api/related", params={"topic": t}, headers=_auth(), timeout=60).raise_for_status().json()
                 rows.append((t, kind, r["max_z"], r["related"]))
     except httpx.HTTPError as e:
         print("skip related figure:", e)
