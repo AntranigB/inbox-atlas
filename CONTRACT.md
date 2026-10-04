@@ -12,6 +12,7 @@ your PR and say so in the PR description. Do not silently diverge.
 | `search-agent` | `atlas/search/`, `atlas/agent/`, `atlas/api/search.py`, `web/index.html`, `web/app.js`, `web/style.css`, `eval/` |
 | `voice` | `atlas/voice/`, `atlas/api/voice.py`, `web/voice.js`, `dictate/` |
 | `imessage` | `imessage/` (Node sidecar), `atlas/api/messaging.py`, `atlas/notify.py` |
+| `backend` | `atlas/daemon.py`, `atlas/cli.py`, `atlas/auth.py`, `atlas/chat.py`, `atlas/api/chat.py`, `web/auth.js`, `web/manifest.webmanifest`, `docs/PHONE.md` |
 
 Shared files (`server.py`, `pyproject.toml`, `CONTRACT.md`, `README.md`) may get small additive
 edits. Keep them additive so merges stay clean.
@@ -123,10 +124,17 @@ The web UI exposes `window.atlas = {search(q), ask(text), applyResult(res), setQ
 | `POST /api/dictate` | voice | multipart `audio` -> `{raw, text}` (STT + Grok cleanup) |
 | `WS /ws/voice` | voice | proxy to Grok realtime, with tools executed server side |
 | `POST /api/notify` | imessage | `{text}` -> sends an iMessage to the owner via the sidecar |
-| `GET /api/health` | shared | `{ok, encoder, n_emails}` |
+| `GET /api/health` | shared | `{ok, encoder, n_emails, auth_required}` (only `{ok, auth_required}` without a valid token) |
+| `POST /api/chat` | backend | `{text, session_id?, channel?}` -> ask output + `{session_id, history_used}`; history kept per session |
+| `GET /api/chat/sessions` | backend | `[{id, title, channel, updated}]`; `GET/DELETE /api/chat/sessions/{id}` |
 
-The sidecar exposes `POST http://localhost:8766/send {text, to?}`. Inbound iMessages go to
-`POST /api/ask` with `channel="imessage"`.
+With `ATLAS_TOKEN` set, every `/api` and `/ws` route except `/api/health` needs the token
+(`Authorization: Bearer`, `X-Atlas-Token`, or `?token=`). Ports come from env `PORT` (8765) and
+`SIDECAR_PORT` (8766). iMessage chat sessions are `imessage:<E.164 handle>`.
+
+The sidecar exposes `POST http://localhost:8766/send {text, to?, platform?}` and `GET /health`
+(`{mode, connected, providers, threads}`). Inbound iMessages go to `POST /api/chat` with
+`channel="imessage"` and `session_id="imessage:<handle>"` (falls back to `/api/ask` on older servers).
 
 ## Grok
 

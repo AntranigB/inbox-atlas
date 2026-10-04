@@ -63,6 +63,11 @@ uv run python -m atlas.index.build --encoder base    # or --encoder models/atlas
 uv run python server.py                              # http://localhost:8765
 ```
 
+Or run the whole backend (API, iMessage sidecar, Postgres, Gmail polling, morning brief) under one
+supervisor: `uv run atlas up`, then `atlas status`, `atlas logs -f`, `atlas down`.
+`atlas install-service` makes it start at login, and `atlas phone` shows how to open it on your
+phone over Tailscale. See [`docs/PHONE.md`](docs/PHONE.md).
+
 Optional pieces: `cd imessage && npm install && npm start` (iMessage agent), `uv run --extra dictate python dictate/dictate.py` (hold Right Option anywhere on macOS to dictate). See [`docs/INGEST.md`](docs/INGEST.md), [`docs/VOICE.md`](docs/VOICE.md), [`docs/IMESSAGE.md`](docs/IMESSAGE.md).
 
 ## Method
