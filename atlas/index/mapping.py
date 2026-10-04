@@ -42,7 +42,7 @@ def layout(E, verbose=False):
         from sklearn.cluster import AgglomerativeClustering
 
         k = max(2, min(12, n // 4))
-        lab = AgglomerativeClustering(n_clusters=k, metric="cosine", linkage="average").fit_predict(E)
+        lab = AgglomerativeClustering(n_clusters=k, linkage="ward").fit_predict(E)
         return xy, lab
     import hdbscan
     import umap
@@ -94,7 +94,7 @@ def _grok_label(subjects, cache):
                          "messages": [{"role": "user", "content": prompt}]})
     r.raise_for_status()
     label = r.json()["choices"][0]["message"]["content"].strip().strip('"').strip()
-    label = re.sub(r"[–—]", "-", label)[:40]
+    label = re.sub("[\u2013\u2014]", "-", label)[:40]
     cache[key] = label
     return label
 
