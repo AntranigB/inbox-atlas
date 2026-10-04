@@ -78,7 +78,12 @@ def api_search(b: SearchBody):
         row.update(n_facets=len(pos or []) or None, region_size=(res.get("region") or {}).get("size"))
     res["expansion"] = exp
     if res.get("region"):
-        res["facet_points"] = _facet_points(eng, [b.query] + list(pos or []) if b.query else list(pos or []))
+        labels, seen = [], set()
+        for lab in ([b.query] if b.query else []) + list(pos or []):
+            if lab.strip() and lab.strip().lower() not in seen:  # no twin stars when the query is also a facet
+                seen.add(lab.strip().lower())
+                labels.append(lab)
+        res["facet_points"] = _facet_points(eng, labels)
     return res
 
 
