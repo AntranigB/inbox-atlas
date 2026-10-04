@@ -7,7 +7,9 @@ Everything below runs on the demo inbox (24 fictional student emails) and the sy
 
 ```bash
 cd ~/Documents/bigred/inbox-atlas
-uv run atlas status        # api up, postgres up; if not: uv run atlas up
+sh scripts/profile.sh demo  # fictional inbox + synthetic vault on Tiger Cloud (never show the personal profile)
+sh scripts/demo_check.sh    # every step should say PASS
+uv run atlas status        # api up, imessage up
 SIDECAR=http://127.0.0.1:8766 MCP=1 scripts/demo_check.sh   # PASS/FAIL per demo step, about 30 s
 ```
 

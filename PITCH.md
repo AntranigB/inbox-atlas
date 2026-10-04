@@ -58,6 +58,8 @@ there we spend 31 tokens, not thousands. On a real 419-note second brain: the ri
 Whisperflow style, or text it on iMessage through Photon: "what do I have tomorrow?" It texts you
 first too, with a morning brief and alerts when mail lands in a topic you're watching.
 
+**If a judge spots "Dinner Sunday?" in the coding results:** "That one says *after your hackathon*. It's about the hackathon even though it never says coding, which is the point."
+
 **Close (15 s).** Navigation used to mean maps. For the next hundred years it also means
 navigating what we and our agents know. Inbox Atlas is a map of your information that people and
 LLMs can both use, at a fraction of the tokens.
