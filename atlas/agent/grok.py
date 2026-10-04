@@ -30,7 +30,7 @@ def _key():
     return config.env("XAI_API_KEY") or config.XAI_API_KEY
 
 
-def chat(messages, tools_=None, json_mode=False, model=None, temperature=0.2, timeout=60):
+def chat(messages, tools_=None, json_mode=False, model=None, temperature=0, timeout=60):
     if not _key():
         raise GrokError("XAI_API_KEY not set")
     body = {"model": model or config.GROK_MODEL, "messages": messages, "temperature": temperature}

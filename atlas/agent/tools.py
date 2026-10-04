@@ -35,10 +35,13 @@ def search_region(positive=None, negative=None, after=None, before=None, query=N
     res = hybrid.search(q, positive, negative or [], {"after": after, "before": before, "from": kw.get("from")},
                         k=int(k or 10), mode="region")
     rg = res["region"]
-    hits = [_slim(h) for h in res["hits"] if h.get("member") or h.get("z", 0) >= 2.0]
+    # Only region members are answers. Near misses (z 2 to 3) go in a separate list so the model can
+    # mention them when asked, without presenting them as matches (e.g. a job assessment for "coding competition").
+    hits = [_slim(h) for h in res["hits"] if h.get("member")]
+    borderline = [_slim(h) for h in res["hits"] if not h.get("member") and h.get("z", 0) >= 2.0][:3]
     return {"region": {"size": rg["size"], "facet_hits": rg["facet_hits"], "nearest_clusters": rg["nearest_clusters"],
                        "related": rg["related"], "max_z": rg["max_z"]},
-            "hits": hits, "_full": res}
+            "hits": hits, "borderline": borderline, "_full": res}
 
 
 def is_related(topic, positive=None, negative=None, **_):
